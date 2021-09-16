@@ -10,10 +10,10 @@ At the time of writing, no Atari emulator can speak directly NetSIO protocol. Th
 | ---                                      | ---   | ---|
 | [Data byte](#data-byte)                  | 0x01  | B |
 | [Data block](#data-block)                | 0x02  | B [B,...] |
-| [Data byte and Sync request](#data-byte-sync) | 0x09  | B B |
+| [Data byte and Sync request](#data-byte-and-sync-request) | 0x09  | B B |
 | [Command OFF](#command-off)              | 0x10  |   |
 | [Command ON](#command-on)                | 0x11  |   |
-| [Command OFF and Sync request](#command-off-sync) | 0x18  | B |
+| [Command OFF and Sync request](#command-off-and-sync-request) | 0x18  | B |
 | [Motor OFF](#motor-off)                  | 0x20  |   |
 | [Motor ON](#motor-on)                    | 0x21  |   |
 | [Proceed OFF](#proceed-off)              | 0x30  |   |
@@ -23,8 +23,8 @@ At the time of writing, no Atari emulator can speak directly NetSIO protocol. Th
 | TODO [Set CPB](#set-cpb)                 | 0x80  | H |
 | TODO [Sync response](#sync-response)     | 0x81  | B B H |
 | **Connection management**                |       |   |
-| [Device disconnected](#device-disconnect) | 0xC0 |   |
-| [Device connected](#device-connect)      | 0xC1  |   |
+| [Device disconnected](#device-disconnected) | 0xC0 |   |
+| [Device connected](#device-connected)      | 0xC1  |   |
 | [Ping request](#ping-request)            | 0xC2  |   |
 | [Ping response](#ping-response)          | 0xC3  |   |
 | [Alive request](#alive-request)          | 0xC4  |   |
@@ -36,7 +36,7 @@ At the time of writing, no Atari emulator can speak directly NetSIO protocol. Th
 
 With the exception to the ping and connect messages the device must be first connected to be able to participate in NetSIO communication (using `Device connected` message) .
 
-### Data byte {#data-byte}
+### Data byte
 
 | Data Byte |    |
 | -- | -- |
@@ -48,7 +48,7 @@ Transfers the SIO data byte from Atari to Device or from Device to Atari.
 
 Used to transfer completion byte 'C' or checksum byte.
 
-### Data block {#data-block}
+### Data block
 
 | Data block |    |
 | -- | -- |
@@ -58,7 +58,7 @@ Used to transfer completion byte 'C' or checksum byte.
 
 Transfers multiple data bytes from Atari to Device or from Device to Atari.
 
-### Data byte and Sync request {#data-byte-sync}
+### Data byte and Sync request
 
 | Data Byte |    |
 | -- | -- |
@@ -70,7 +70,7 @@ Transfers the SIO data byte from Atari to Device together with the request to sy
 
 Used on last byte (checksum) of SIO write command when Atari is sending data frame to the peripheral and expects the acknowledgment byte (ACK or NAK) to be delivered withing 850 us to 16 ms. The acknowledgment byte is send from device as Sync response. The emulation is resumed after Sync response is delivered to emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
 
-### Command OFF {#command-off}
+### Command OFF
 
 | Command OFF |    |
 | -- | -- |
@@ -84,7 +84,7 @@ Note: The command pin uses negative logic. Active command means low voltage on c
 
 Note: Currently not used, see [Command OFF and Sync request](#command-off-sync)
 
-### Command ON {#command-on}
+### Command ON
 
 | Command ON |    |
 | -- | -- |
@@ -96,7 +96,7 @@ Command was asserted. Atari indicates to all connected devices the start of comm
 
 Note: The command pin uses negative logic. See Command OFF above.
 
-### Command OFF and Sync request {#command-off-sync}
+### Command OFF and Sync request
 
 | Command OFF and Sync request |    |
 | -- | -- |
@@ -108,7 +108,7 @@ Command was de-asserted. Atari indicates to all connected devices the end of com
 
 When Atari is sending command frame to the peripheral it expects the acknowledgment byte (ACK or NAK) to be delivered withing 16 ms. The acknowledgment byte is send from device as Sync response. The emulation is resumed after Sync response is delivered to emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
 
-### Motor OFF {#motor-off}
+### Motor OFF
 
 | Motor OFF |    |
 | -- | -- |
@@ -118,7 +118,7 @@ When Atari is sending command frame to the peripheral it expects the acknowledgm
 
 Cassette player motor off. Atari stops the cassette motor.
 
-### Motor ON {#motor-on}
+### Motor ON
 
 | Motor OFF |    |
 | -- | -- |
@@ -128,9 +128,9 @@ Cassette player motor off. Atari stops the cassette motor.
 
 Cassette player motor on. Atari starts the cassette motor.
 
-### Proceed OFF {#proceed-off}
+### Proceed OFF
 
-### Proceed ON {#proceed-on}                
+### Proceed ON
 
 | Proceed OFF |    |
 | -- | -- |
@@ -148,9 +148,9 @@ The device indicates to the Atari that it needs some attention. Used by FujiNet 
 
 Note: The proceed pin uses negative logic.
 
-### Interrupt OFF {#interrupt-off}
+### Interrupt OFF
 
-### Interrupt ON {#interrupt-on}            
+### Interrupt ON
 
 | Interrupt OFF |    |
 | -- | -- |
@@ -168,7 +168,7 @@ Similar to `proceed`, the device indicates to the Atari that the device needs so
 
 Note: The interrupt pin uses negative logic.
 
-### Set CPB {#set-cpb}
+### Set CPB
 
 | Data Byte |    |
 | -- | -- |
@@ -182,7 +182,7 @@ Note: For easy integration with Altirra the parameter uses Atari clock cycles pe
 
 TODO: Replace cycles per bit with baud.
 
-### Device disconnected {#device-disconnect}
+### Device disconnected
 
 | Device disconnected |    |
 | -- | -- |
@@ -192,7 +192,7 @@ TODO: Replace cycles per bit with baud.
 
 The device was disconnected from NetSIO bus. It will not receive NetSIO messages anymore and messages from it will not be delivered to Atari anymore.
 
-### Device connected {#device-connect}      
+### Device connected
 
 | Device connected |    |
 | -- | -- |
@@ -202,9 +202,9 @@ The device was disconnected from NetSIO bus. It will not receive NetSIO messages
 
 The device was connected to NetSIO bus. NetSIO messages from Atari will be send to the device and messages from the device will be delivered to Atari.
 
-### Ping request {#ping-request}            
+### Ping request
 
-### Ping response {#ping-response}          
+### Ping response
 
 | Ping request |    |
 | -- | -- |
@@ -220,9 +220,9 @@ The device was connected to NetSIO bus. NetSIO messages from Atari will be send 
 
 Allows the device to test the availability of NetSIO hub. Similar to ICMP ping, it can be used to measure network round trip time between device and the hub.
 
-### Alive request {#alive-request}          
+### Alive request
 
-### Alive response {#alive-response}        
+### Alive response
 
 | Alive request |    |
 | -- | -- |
@@ -238,7 +238,7 @@ Allows the device to test the availability of NetSIO hub. Similar to ICMP ping, 
 
 The device informs the hub, that the device is still connected and interested into communication. The device must send the `Alive request` in regular intervals (every TBD). In turn, the hub must send `Alive response` to the device to let the device know the connection is still established.
 
-### Warm reset {#warm-reset}
+### Warm reset
 
 | Warm reset |    |
 | -- | -- |
@@ -248,7 +248,7 @@ The device informs the hub, that the device is still connected and interested in
 
 Informs the connected device the emulated Atari did warm reset.
 
-### Cold reset {#cold-reset}
+### Cold reset
 
 | Cold reset |    |
 | -- | -- |
