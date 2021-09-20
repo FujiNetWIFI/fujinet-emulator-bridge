@@ -380,7 +380,7 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
             self.hub.handle_host_msg(NetSIOMsg(event, arg))
         elif event == NETSIO_SPEED_CHANGE:
             # serial output speed changed
-            self.hub.handle_host_msg(NetSIOMsg(event, struct.pack("<H", arg)))
+            self.hub.handle_host_msg(NetSIOMsg(event, struct.pack("<L", arg)))
         elif event < 0x100: # fit byte
             # all other events from atdevice (one byte)
             # send to connected devices
@@ -463,8 +463,11 @@ class AtDevThread(threading.Thread):
                 debug_print("< ATD +{:.0f} {}".format(msg.elapsed() * 1.e6, msg))
             elif msg.id == NETSIO_SPEED_CHANGE:
                 # speed change
-                self.atdev_handler.req_interrupt(msg.id, struct.unpack('<H', msg.arg)[0])
-                debug_print("< ATD +{:.0f} {}".format(msg.elapsed() * 1.e6, msg))
+                if len(msg.arg) == 4:
+                    self.atdev_handler.req_interrupt(msg.id, struct.unpack('<L', msg.arg)[0])
+                    debug_print("< ATD +{:.0f} {}".format(msg.elapsed() * 1.e6, msg))
+                else:
+                    print("Invalid NETSIO_SPEED_CHANGE message")
             else:
                 # all other
                 self.atdev_handler.req_interrupt(msg.id, msg.arg[0] if len(msg.arg) else 0)

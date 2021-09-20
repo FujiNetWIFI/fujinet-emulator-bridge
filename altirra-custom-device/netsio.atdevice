@@ -117,13 +117,15 @@ function void send_rxbuffer() {
 }
 
 function void rxbyte_thread_handler() {
+    int baud;
     loop {
         rxbyte = $sio.recv_raw_byte();
         if (out_cpb != $aux) {
                 send_rxbuffer();
             out_cpb = $aux;
-            Debug.log_int("NetSIO OUT speed (CPB) ", out_cpb);
-            $network.post_message($80, out_cpb);
+            baud = 1789773 / $aux;
+            Debug.log_int("NetSIO from Atari @ ", baud);
+            $network.post_message($80, baud);
         }
         if (sync_write_size) {
             sync_write_size = sync_write_size - 1;
@@ -169,8 +171,8 @@ event "network_interrupt": function {
         $network.post_message($100, 0);
     }
     else if (evt == $80) {
-        in_cpb = arg;
-        Debug.log_int("NetSIO IN speed (CPB) ", in_cpb);
+        in_cpb = 1789773 / arg;
+        Debug.log_int("NetSIO to Atari @ ", arg);
     }
     else if (evt == $101) {
         // send bytes from region to POKEY
