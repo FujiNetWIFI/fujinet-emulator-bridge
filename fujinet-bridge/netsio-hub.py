@@ -196,6 +196,10 @@ class NetSIOServer(socketserver.UDPServer):
         for c in expired:
             self.deregister_client(c.address, expired=True)
         
+    def connected(self):
+        """Return true if any client is connected"""
+        with self.clients_lock:
+            return len(self.clients) > 0
 
 class NetSIOHandler(socketserver.BaseRequestHandler):
     """NetSIO received packet handler"""
@@ -310,6 +314,9 @@ class NetSIOManager():
         self.device_queue.put(msg)
         # debug_print("> DEV", msg)
 
+    def connected(self):
+        """Return true if any device is connected"""
+        return self.netin_thread.server.connected()
 
 class HostManager():
     """Connection with Atari host, i.e. connection with Atari emulator"""
@@ -568,7 +575,11 @@ class NetSIOHub:
             return 0
         msg.arg += bytes( (self.sync.set_request(msg.id),) ) # append request sn prior sending
         clear_queue(self.host_queue)
-        self.handle_host_msg(msg) # send to devices
+        if not self.device_manager.connected():
+            # shortcut: no device is connected, set response now
+            self.sync.set_response(-1, self.sync.sn) # no ACK byte, set invalid value
+        else:
+            self.handle_host_msg(msg) # send to devices
         result = self.sync.get_response(0.1, -1)
         debug_print("< SYNC ATD +{:.0f} {:02X}".format(msg.elapsed() * 1.e6, result))
         return result
@@ -585,7 +596,7 @@ class NetSIOHub:
                 # we received response to current SYNC request
                 if msg.arg[1] == NETSIO_EMPTY_SYNC:
                     # empty response, no ACK/NAK
-                    self.sync.set_response(-1, sn) # invalid unsigned byte
+                    self.sync.set_response(-1, sn) # no ACK byte, set invalid value
                 else:
                     # response with ACK/NAK byte and sync write size
                     self.sync.set_response(msg.arg[2] | (msg.arg[3] << 8) | (msg.arg[4] << 16), sn)
