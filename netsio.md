@@ -66,9 +66,9 @@ Transfers multiple data bytes from Atari to Device or from Device to Atari.
 | Direction | Atari -> Device |
 | Parameters | byte to transfer, sync request number |
 
-Transfers the SIO data byte from Atari to Device together with the request to synchronize on next byte from Device to Atari. Emulator is paused waiting for Sync response.
+Transfers the SIO data byte from Atari to Device together with the request to synchronize on next byte from Device to Atari. Atari emulation is paused waiting for Sync response.
 
-Used on last byte (checksum) of SIO write command when Atari is sending data frame to the peripheral and expects the acknowledgment byte (ACK or NAK) to be delivered withing 850 us to 16 ms. The acknowledgment byte will be send from device as Sync response. The emulation is resumed after Sync response is delivered to emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
+Used on last byte (checksum) of SIO write command when Atari is sending data frame to the peripheral and expects the acknowledgment byte (ACK or NAK) to be delivered withing 850 us to 16 ms. The acknowledgment byte will be send from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
 
 ### Command OFF
 
@@ -104,9 +104,9 @@ Note: The command pin uses negative logic. See Command OFF above.
 | Direction | Atari -> Device |
 | Parameters | sync request number |
 
-Command was de-asserted. Atari indicates to all connected devices the end of command frame together with the request to synchronize on next byte from Device to Atari. Emulator is paused waiting for Sync response.
+Command was de-asserted. Atari indicates to all connected devices the end of command frame together with the request to synchronize on next byte from Device to Atari. Atari emulation is paused waiting for Sync response.
 
-When Atari is sending command frame to the peripheral it expects the acknowledgment byte (ACK or NAK) to be delivered withing 16 ms. The acknowledgment byte will be send from device as Sync response. The emulation is resumed after Sync response is delivered to emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
+When Atari is sending command frame to the peripheral it expects the acknowledgment byte (ACK or NAK) to be delivered withing 16 ms. The acknowledgment byte will be send from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
 
 ### Motor OFF
 
