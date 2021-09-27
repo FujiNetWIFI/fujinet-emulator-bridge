@@ -8,20 +8,20 @@ At the time of writing, no Atari emulator can speak directly NetSIO protocol. Th
 
 | Message                                  | ID    | Parameters |
 | ---                                      | ---   | ---|
-| [Data byte](#data-byte)                  | 0x01  | B |
-| [Data block](#data-block)                | 0x02  | B [B,...] |
-| [Data byte and Sync request](#data-byte-and-sync-request) | 0x09  | B B |
+| [Data byte](#data-byte)                  | 0x01  | data_byte: uint8 |
+| [Data block](#data-block)                | 0x02  | byte_array: uint8[] |
+| [Data byte and Sync request](#data-byte-and-sync-request) | 0x09  | data_byte: uint8, sync_number: uint8 |
 | [Command OFF](#command-off)              | 0x10  |   |
 | [Command ON](#command-on)                | 0x11  |   |
-| [Command OFF and Sync request](#command-off-and-sync-request) | 0x18  | B |
+| [Command OFF and Sync request](#command-off-and-sync-request) | 0x18  | sync_number: uint8 |
 | [Motor OFF](#motor-off)                  | 0x20  |   |
 | [Motor ON](#motor-on)                    | 0x21  |   |
 | [Proceed OFF](#proceed-off)              | 0x30  |   |
 | [Proceed ON](#proceed-on)                | 0x31  |   |
 | [Interrupt OFF](#interrupt-off)          | 0x40  |   |
 | [Interrupt ON](#interrupt-on)            | 0x41  |   |
-| [Speed change](#speed-change)            | 0x80  | L |
-| [Sync response](#sync-response)          | 0x81  | B B H |
+| [Speed change](#speed-change)            | 0x80  | baud: uint32 |
+| [Sync response](#sync-response)          | 0x81  | sync_number: uint8, ack_type: uint8, ack_byte: uint8, write_size: uint16 |
 | **Connection management**                |       |   |
 | [Device disconnected](#device-disconnected) | 0xC0 |   |
 | [Device connected](#device-connected)      | 0xC1  |   |
@@ -34,7 +34,7 @@ At the time of writing, no Atari emulator can speak directly NetSIO protocol. Th
 | [Cold reset](#cold-reset)                | 0xFF  |   |
 
 
-With the exception to the ping and connect messages the device must be first connected to be able to participate in NetSIO communication (using `Device connected` message) .
+With the exception to the ping the device must be first connected ([Device connected](#device-connected)) to be able to participate in NetSIO communication.
 
 ### Data byte
 
@@ -42,11 +42,11 @@ With the exception to the ping and connect messages the device must be first con
 | -- | -- |
 | ID | 0x01 |
 | Direction | Atari -> Device, Device -> Atari |
-| Parameters | byte to transfer |
+| Parameters | data_byte: uint8 - byte to transfer |
 
 Transfers the SIO data byte from Atari to Device or from Device to Atari.
 
-Used to transfer completion byte 'C' or checksum byte.
+Used to, but not limited to, transfer completion byte 'C' or checksum byte.
 
 ### Data block
 
@@ -54,7 +54,7 @@ Used to transfer completion byte 'C' or checksum byte.
 | -- | -- |
 | ID | 0x02 |
 | Direction | Atari -> Device, Device -> Atari |
-| Parameters | one or more bytes to transfer (up to 512) |
+| Parameters | byte_array: uint8[] - one or more bytes to transfer (up to 512) |
 
 Transfers multiple data bytes from Atari to Device or from Device to Atari.
 
@@ -64,11 +64,14 @@ Transfers multiple data bytes from Atari to Device or from Device to Atari.
 | -- | -- |
 | ID | 0x09 |
 | Direction | Atari -> Device |
-| Parameters | byte to transfer, sync request number |
+| Parameters | data_byte: uint8 - byte to transfer |
+|            | sync_number: uint8 - sync request number |
 
 Transfers the SIO data byte from Atari to Device together with the request to synchronize on next byte from Device to Atari. Atari emulation is paused waiting for Sync response.
 
 Used on last byte (checksum) of SIO write command when Atari is sending data frame to the peripheral and expects the acknowledgment byte (ACK or NAK) to be delivered withing 850 us to 16 ms. The acknowledgment byte will be send from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
+
+`sync request number` is incremented with every Sync request sent. It is used to match corresponding [Sync response](#sync-response).
 
 ### Command OFF
 
@@ -80,7 +83,7 @@ Used on last byte (checksum) of SIO write command when Atari is sending data fra
 
 Command was de-asserted. Atari indicates to all connected devices the end of command frame.
 
-Note: The command pin uses negative logic. Active command means low voltage on corresponding SIO pin and inactive command means high TTL voltage on pin. The pin is therefore marked as <span style="text-decoration:overline">COMMAND</span> or sometimes as /COMMAND.
+Note: The command pin uses negative logic. Active command means low voltage on corresponding SIO pin and inactive command is high on pin.
 
 Note: Currently not used, see [Command OFF and Sync request](#command-off-and-sync-request)
 
@@ -94,7 +97,7 @@ Note: Currently not used, see [Command OFF and Sync request](#command-off-and-sy
 
 Command was asserted. Atari indicates to all connected devices the start of command frame.
 
-Note: The command pin uses negative logic. See Command OFF above.
+Note: The command pin uses negative logic.
 
 ### Command OFF and Sync request
 
@@ -102,11 +105,13 @@ Note: The command pin uses negative logic. See Command OFF above.
 | -- | -- |
 | ID | 0x18 |
 | Direction | Atari -> Device |
-| Parameters | sync request number |
+| Parameters | sync_number: uint8 - sync request number |
 
 Command was de-asserted. Atari indicates to all connected devices the end of command frame together with the request to synchronize on next byte from Device to Atari. Atari emulation is paused waiting for Sync response.
 
 When Atari is sending command frame to the peripheral it expects the acknowledgment byte (ACK or NAK) to be delivered withing 16 ms. The acknowledgment byte will be send from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
+
+`sync request number` is incremented with every Sync request sent. It is used to match corresponding [Sync response](#sync-response).
 
 ### Motor OFF
 
@@ -174,9 +179,13 @@ Note: The interrupt pin uses negative logic.
 | -- | -- |
 | ID | 0x80 |
 | Direction | Atari -> Device, Device -> Atari |
-| Parameters | 4 bytes little-endian baud |
+| Parameters | baud: uint32 - 4 bytes little-endian baud |
 
-Indicates the outgoing data rate has changed. Next `Data byte` or `Data block` will be transmitted at specified rate.
+Indicates the outgoing data rate has changed. Next [Data byte](#data-byte) or [Data block](#data-block) will be transmitted at specified rate.
+
+The speed has an effect when transferring data to emulated Atari. It will appear as Data bits will "arrive" to SIO Data In pin at specified rate.
+
+In opposite direction, when NetSIO device is receiving data, the bitrate of data is just complementary information. However this information can be used to simulate errors in case the device is currently expecting data to arrive at different bitrate. E.g. this is used by FujiNet to toggle speed between standard 19200 and high speed when specific error threshold is reached.
 
 ### Sync response
 
@@ -184,18 +193,22 @@ Indicates the outgoing data rate has changed. Next `Data byte` or `Data block` w
 | -- | -- |
 | ID | 0x81 |
 | Direction | Device -> Atari |
-| Parameters | sync request number, acknowledgment type, acknowledgment byte, LSB+MSB write size next sync |
+| Parameters | sync_number: uint8 - sync request number |
+|            | ack_type: uint8 - acknowledgment type |
+|            | ack_byte: uint8 - acknowledgment byte |
+|            | write_size: uint16 - LSB+MSB write size next sync |
 
 Response to [Command OFF and Sync request](#command-off-and-sync-request) or [Data byte and Sync request](#data-byte-and-sync-request). Atari emulation is paused after sending sync request and it's waiting for Sync response. After Sync response is delivered the emulation is resumed.
 
 The purpose of Sync request-response mechanism is to allow SIO acknowledgment (ACK/NAK) in time delivery. There are two scenarios when ACK/NAK is expected. First scenario, anytime when Atari sends command frame to all connected devices, it expects acknowledgment byte from device which will handle the command. Second scenario is for SIO write command, when Atari sends data frame (data part of SIO write command), it expects the acknowledgment of successful delivery. In both cases the acknowledgment delivery is expected no later then 16 ms after command frame or data frame was sent by Atari. With emulation pause and resume it's possible to meet this timing requirement even with NetSIO devices connected over latent networks.
 
-* `sync request number` value is copied from Sync request
+* `sync request number` matches `sync request number` from Sync request.
 
 * `acknowledgment type`
 
   0 = Empty acknowledgment (device is not interested into this command), `acknowledgment byte` and `write size next sync` are ignored. This allows to resume the emulation in case there is no acknowledgment from any device.
-  1 = Valid acknowledgment, send `acknowledgment byte` to Atari.
+
+  1 = Valid acknowledgment, `acknowledgment byte` will be sent to Atari.
 
 * `acknowledgment byte` is a byte the Atari is waiting for. For standard SIO it is ACK (65, 'A') or NAK (78, 'N').
 
