@@ -6,32 +6,32 @@ At the time of writing, no Atari emulator can speak directly NetSIO protocol. Th
 
 ## NetSIO protocol
 
-| Message                                  | ID    | Parameters |
-| ---                                      | ---   | ---|
-| [Data byte](#data-byte)                  | 0x01  | data_byte: uint8 |
-| [Data block](#data-block)                | 0x02  | byte_array: uint8[] |
+| Message                                     | ID    | Parameters |
+| ---                                         | ---   | ---|
+| [Data byte](#data-byte)                     | 0x01  | data_byte: uint8 |
+| [Data block](#data-block)                   | 0x02  | byte_array: uint8[] |
 | [Data byte and Sync request](#data-byte-and-sync-request) | 0x09  | data_byte: uint8, sync_number: uint8 |
-| [Command OFF](#command-off)              | 0x10  |   |
-| [Command ON](#command-on)                | 0x11  |   |
+| [Command ON](#command-on)                   | 0x11  |   |
+| [Command OFF](#command-off)                 | 0x10  |   |
 | [Command OFF and Sync request](#command-off-and-sync-request) | 0x18  | sync_number: uint8 |
-| [Motor OFF](#motor-off)                  | 0x20  |   |
-| [Motor ON](#motor-on)                    | 0x21  |   |
-| [Proceed OFF](#proceed-off)              | 0x30  |   |
-| [Proceed ON](#proceed-on)                | 0x31  |   |
-| [Interrupt OFF](#interrupt-off)          | 0x40  |   |
-| [Interrupt ON](#interrupt-on)            | 0x41  |   |
-| [Speed change](#speed-change)            | 0x80  | baud: uint32 |
-| [Sync response](#sync-response)          | 0x81  | sync_number: uint8, ack_type: uint8, ack_byte: uint8, write_size: uint16 |
-| **Connection management**                |       |   |
-| [Device disconnected](#device-disconnected) | 0xC0 |   |
-| [Device connected](#device-connected)      | 0xC1  |   |
-| [Ping request](#ping-request)            | 0xC2  |   |
-| [Ping response](#ping-response)          | 0xC3  |   |
-| [Alive request](#alive-request)          | 0xC4  |   |
-| [Alive response](#alive-response)        | 0xC5  |   |
-| **Notifications**                        |       |   |
-| [Warm reset](#warm-reset)                | 0xFE  |   |
-| [Cold reset](#cold-reset)                | 0xFF  |   |
+| [Motor ON](#motor-on)                       | 0x21  |   |
+| [Motor OFF](#motor-off)                     | 0x20  |   |
+| [Proceed ON](#proceed-on)                   | 0x31  |   |
+| [Proceed OFF](#proceed-off)                 | 0x30  |   |
+| [Interrupt ON](#interrupt-on)               | 0x41  |   |
+| [Interrupt OFF](#interrupt-off)             | 0x40  |   |
+| [Speed change](#speed-change)               | 0x80  | baud: uint32 |
+| [Sync response](#sync-response)             | 0x81  | sync_number: uint8, ack_type: uint8, ack_byte: uint8, write_size: uint16 |
+| **Connection management**                   |       |   |
+| [Device connected](#device-connected)       | 0xC1  |   |
+| [Device disconnected](#device-disconnected) | 0xC0  |   |
+| [Ping request](#ping-request)               | 0xC2  |   |
+| [Ping response](#ping-response)             | 0xC3  |   |
+| [Alive request](#alive-request)             | 0xC4  |   |
+| [Alive response](#alive-response)           | 0xC5  |   |
+| **Notifications**                           |       |   |
+| [Warm reset](#warm-reset)                   | 0xFE  |   |
+| [Cold reset](#cold-reset)                   | 0xFF  |   |
 
 
 With the exception to the ping the device must be first connected ([Device connected](#device-connected)) to be able to participate in NetSIO communication.
@@ -73,20 +73,6 @@ Used on last byte (checksum) of SIO write command when Atari is sending data fra
 
 `sync request number` is incremented with every Sync request sent. It is used to match corresponding [Sync response](#sync-response).
 
-### Command OFF
-
-| Command OFF |    |
-| -- | -- |
-| ID | 0x10 |
-| Direction | Atari -> Device |
-| Parameters | none |
-
-Command was de-asserted. Atari indicates to all connected devices the end of command frame.
-
-Note: The command pin uses negative logic. Active command means low voltage on corresponding SIO pin and inactive command is high on pin.
-
-Note: Currently not used, see [Command OFF and Sync request](#command-off-and-sync-request)
-
 ### Command ON
 
 | Command ON |    |
@@ -97,7 +83,21 @@ Note: Currently not used, see [Command OFF and Sync request](#command-off-and-sy
 
 Command was asserted. Atari indicates to all connected devices the start of command frame.
 
+Note: The command pin uses negative logic. Active command means low voltage on corresponding SIO pin and inactive command is high on SIO pin.
+
+### Command OFF
+
+| Command OFF |    |
+| -- | -- |
+| ID | 0x10 |
+| Direction | Atari -> Device |
+| Parameters | none |
+
+Command was de-asserted. Atari indicates to all connected devices the end of command frame.
+
 Note: The command pin uses negative logic.
+
+Note: Currently not used, see [Command OFF and Sync request](#command-off-and-sync-request)
 
 ### Command OFF and Sync request
 
@@ -113,16 +113,6 @@ When Atari is sending command frame to the peripheral it expects the acknowledgm
 
 `sync request number` is incremented with every Sync request sent. It is used to match corresponding [Sync response](#sync-response).
 
-### Motor OFF
-
-| Motor OFF |    |
-| -- | -- |
-| ID | 0x20 |
-| Direction | Atari -> Device |
-| Parameters | none |
-
-Cassette player motor off. Atari stops the cassette motor.
-
 ### Motor ON
 
 | Motor OFF |    |
@@ -133,15 +123,19 @@ Cassette player motor off. Atari stops the cassette motor.
 
 Cassette player motor on. Atari starts the cassette motor.
 
-### Proceed OFF
+### Motor OFF
+
+| Motor OFF |    |
+| -- | -- |
+| ID | 0x20 |
+| Direction | Atari -> Device |
+| Parameters | none |
+
+Cassette player motor off. Atari stops the cassette motor.
 
 ### Proceed ON
 
-| Proceed OFF |    |
-| -- | -- |
-| ID | 0x40 |
-| Direction | Device -> Atari |
-| Parameters | none |
+### Proceed OFF
 
 | Proceed ON |    |
 | -- | -- |
@@ -149,23 +143,29 @@ Cassette player motor on. Atari starts the cassette motor.
 | Direction | Device -> Atari |
 | Parameters | none |
 
+| Proceed OFF |    |
+| -- | -- |
+| ID | 0x40 |
+| Direction | Device -> Atari |
+| Parameters | none |
+
 The device indicates to the Atari that it needs some attention. Used by FujiNet to indicate there is a data available for read.
 
 Note: The proceed pin uses negative logic.
 
-### Interrupt OFF
-
 ### Interrupt ON
 
-| Interrupt OFF |    |
-| -- | -- |
-| ID | 0x30 |
-| Direction | Device -> Atari |
-| Parameters | none |
+### Interrupt OFF
 
 | Interrupt ON |    |
 | -- | -- |
 | ID | 0x31 |
+| Direction | Device -> Atari |
+| Parameters | none |
+
+| Interrupt OFF |    |
+| -- | -- |
+| ID | 0x30 |
 | Direction | Device -> Atari |
 | Parameters | none |
 
@@ -218,16 +218,6 @@ The purpose of Sync request-response mechanism is to allow SIO acknowledgment (A
 
   0 = do not "plan" next sync
 
-### Device disconnected
-
-| Device disconnected |    |
-| -- | -- |
-| ID | 0xC0 |
-| Direction | Device -> hub |
-| Parameters | none |
-
-The device was disconnected from NetSIO bus. It will not receive NetSIO messages anymore and messages from it will not be delivered to Atari anymore.
-
 ### Device connected
 
 | Device connected |    |
@@ -237,6 +227,16 @@ The device was disconnected from NetSIO bus. It will not receive NetSIO messages
 | Parameters | none |
 
 The device was connected to NetSIO bus. NetSIO messages from Atari will be sent to the device and messages from the device will be delivered to Atari.
+
+### Device disconnected
+
+| Device disconnected |    |
+| -- | -- |
+| ID | 0xC0 |
+| Direction | Device -> hub |
+| Parameters | none |
+
+The device was disconnected from NetSIO bus. It will not receive NetSIO messages anymore and messages from it will not be delivered to Atari anymore.
 
 ### Ping request
 
