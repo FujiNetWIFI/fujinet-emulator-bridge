@@ -69,7 +69,7 @@ Transfers multiple data bytes from Atari to Device or from Device to Atari.
 
 Transfers the SIO data byte from Atari to Device together with the request to synchronize on next byte from Device to Atari. Atari emulation is paused waiting for Sync response.
 
-Used on last byte (checksum) of SIO write command when Atari is sending data frame to the peripheral and expects the acknowledgment byte (ACK or NAK) to be delivered withing 850 us to 16 ms. The acknowledgment byte will be send from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
+Used on last byte (checksum) of SIO write command when Atari is sending data frame to the peripheral and expects the acknowledgment byte (ACK or NAK) to be delivered withing 850 us to 16 ms. The acknowledgment byte will be sent from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
 
 `sync request number` is incremented with every Sync request sent. It is used to match corresponding [Sync response](#sync-response).
 
@@ -109,7 +109,7 @@ Note: The command pin uses negative logic.
 
 Command was de-asserted. Atari indicates to all connected devices the end of command frame together with the request to synchronize on next byte from Device to Atari. Atari emulation is paused waiting for Sync response.
 
-When Atari is sending command frame to the peripheral it expects the acknowledgment byte (ACK or NAK) to be delivered withing 16 ms. The acknowledgment byte will be send from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
+When Atari is sending command frame to the peripheral it expects the acknowledgment byte (ACK or NAK) to be delivered withing 16 ms. The acknowledgment byte will be sent from device as Sync response. Atari emulation is resumed after Sync response is delivered to the emulator. This pause-resume mechanism allows to extend the 16 ms requirement for the acknowledgment delivery.
 
 `sync request number` is incremented with every Sync request sent. It is used to match corresponding [Sync response](#sync-response).
 
@@ -236,7 +236,7 @@ The device was disconnected from NetSIO bus. It will not receive NetSIO messages
 | Direction | Device -> hub |
 | Parameters | none |
 
-The device was connected to NetSIO bus. NetSIO messages from Atari will be send to the device and messages from the device will be delivered to Atari.
+The device was connected to NetSIO bus. NetSIO messages from Atari will be sent to the device and messages from the device will be delivered to Atari.
 
 ### Ping request
 
