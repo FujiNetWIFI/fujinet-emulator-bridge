@@ -240,4 +240,9 @@ event "cold_reset": function {
     motor_thread.run(motor_thread_handler);
     command_thread.run(command_thread_handler);
     rxbyte_thread.run(rxbyte_thread_handler);
+    Debug.log("NetSIO Cold Reset");
+};
+
+event "warm_reset": function {
+    Debug.log("NetSIO Warm Reset");
 };
