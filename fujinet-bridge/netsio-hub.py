@@ -10,6 +10,7 @@ import time
 import struct
 import argparse
 from timeit import default_timer as timer
+from datetime import datetime
 
 HUB_VERSION = "v0.1"
 
@@ -39,13 +40,14 @@ NETSIO_COLD_RESET       = 0xFF
 # events to manage device connection (connect, ping, alive) >= 0xC0
 NETSIO_CONN_MGMT        = 0xC0
 
+# NETSIO_SYNC_RESPONSE types
+NETSIO_EMPTY_SYNC       = 0x00
+NETSIO_ACK_SYNC         = 0x01
+
 # Altirra specific
 ATDEV_READY             = 0x100
 ATDEV_TRANSMIT_BUFFER   = 0x101
 ATDEV_DEBUG_MESSAGE     = 0x102
-
-NETSIO_EMPTY_SYNC       = 0x00
-NETSIO_ACK_SYNC         = 0x01
 
 
 # local TCP port for Altirra custom device communication
@@ -141,12 +143,12 @@ class NetSIOServer(socketserver.UDPServer):
             if address not in self.clients:
                 client = NetSIOClient(address, sock)
                 self.clients[address] = client
-                print("Device connected ({}) {}:{}".format(len(self.clients), address[0], address[1]))
+                info_print("Device connected {}:{} [{}]".format(address[0], address[1], len(self.clients)))
             else:
                 client = self.clients[address]
                 client.sock = sock
                 client.expire_time = ALIVE_EXPIRATION + time.time()
-                print("Device reconnected ({}) {}:{}".format(len(self.clients), address[0], address[1]))
+                info_print("Device reconnected {}:{} [{}]".format(address[0], address[1], len(self.clients)))
             self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
         return client
 
@@ -158,9 +160,8 @@ class NetSIOServer(socketserver.UDPServer):
                 client = None
             count = len(self.clients)
         if client is not None:
-            if expired:
-                print("Connection expired")
-            print("Device disconnected ({}) {}:{}".format(count, address[0], address[1]))
+            info_print("Device disconnected {}{}:{} [{}]".format(
+                "(connection expired) " if expired else "", address[0], address[1], count))
             self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_DISCONNECT), client)
 
     def get_client(self, address):
@@ -428,7 +429,7 @@ class AtDevThread(threading.Thread):
         debug_print("AtDevThread started")
 
         # TODO debug text message
-        # place message to netsio.atdevice txxbuffer i.e. segment 2
+        # place message to netsio.atdevice textbuffer i.e. segment 2
         msg = NetSIOMsg(ATDEV_DEBUG_MESSAGE, b"Hi")
         self.atdev_handler.req_write_seg_mem(2, 0, msg.arg)
         msglen = len(msg.arg)
@@ -474,7 +475,7 @@ class AtDevThread(threading.Thread):
                     self.atdev_handler.req_interrupt(msg.id, struct.unpack('<L', msg.arg)[0])
                     debug_print("< ATD +{:.0f} {}".format(msg.elapsed() * 1.e6, msg))
                 else:
-                    print("Invalid NETSIO_SPEED_CHANGE message")
+                    info_print("Invalid NETSIO_SPEED_CHANGE message")
             else:
                 # all other
                 self.atdev_handler.req_interrupt(msg.id, msg.arg[0] if len(msg.arg) else 0)
@@ -550,18 +551,18 @@ class NetSIOHub:
             self.host_manager.stop()
 
     def host_connected(self):
-        print("Host connected")
+        info_print("Host connected")
         self.host_ready.set()
         return self.host_queue
 
     def host_disconnected(self):
-        print("Host disconnected")
+        info_print("Host disconnected")
         self.host_ready.clear()
         clear_queue(self.host_queue)
 
     def handle_host_msg(self, msg:NetSIOMsg):
         if msg.id in (NETSIO_COLD_RESET, NETSIO_WARM_RESET):
-            print("HOST {} RESET".format("COLD" if msg.id == NETSIO_COLD_RESET else "WARM"))
+            info_print("HOST {} RESET".format("COLD" if msg.id == NETSIO_COLD_RESET else "WARM"))
             # # clear I/O queues on emulator cold / warm reset
             # debug_print("CLEAR HOST QUEUE")
             # clear_queue(self.host_queue)
@@ -637,8 +638,11 @@ def get_arg_parser(full=True):
 
 
 def _debug_print(*argv, **kwargs):
-    global _star_time
-    print("{:0.6f}".format(timer() - _start_time), *argv, **kwargs)
+    print("{}".format(datetime.now().strftime("%H:%M:%S.%f")), *argv, **kwargs)
+
+
+def info_print(*argv, **kwargs):
+    print("{}".format(datetime.now().strftime("%H:%M:%S.%f")), *argv, **kwargs)
 
 
 def main():
