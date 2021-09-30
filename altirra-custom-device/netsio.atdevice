@@ -36,13 +36,6 @@ Thread command_thread;
 Thread motor_thread;
 Thread rxbyte_thread;
 
-// Thread tx_thread;
-
-// debug
-int soc; // start of command timestamp
-int eoc; // end of command timestamp
-
-
 function void motor_thread_handler() {
     loop {
         $sio.wait_motor_changed();
@@ -77,8 +70,6 @@ function void sync_ack_on_command_frame() {
     ack_wsize = $network.send_message($18, 0); // 0x18 = COMMAND OFF + SYNC REQUEST
     //handle_sync_response(ack_wsize);
     handle_sync_response();
-    // eoc = $timestamp;
-    // Debug.log_int("CMD OFF ", eoc - soc);
     $network.post_message($100, 0);
 }
 
@@ -92,27 +83,40 @@ function void sync_ack_on_data_frame() {
     $network.post_message($100, 0);
 }
 
-function void command_thread_handler() {
-    loop {
-        $sio.wait_command();
-        // command asserted
-        $network.post_message($11, 0);
-        // bundle command frame bytes into block
-        sync_write_size = 5;
-        // Debug.log("CMD ON");
-        // soc = $timestamp;
-        // Debug.log_int("CMD ON  ", soc - eoc);
-
-        $sio.wait_command_off();
-        // command de-asserted
-        sync_ack_on_command_frame();
-    }
-}
-
 function void send_rxbuffer() {
     if (rxbuffer_len) {
         $network.send_message($02, rxbuffer_len); // data block, synchronous call
         rxbuffer_len = 0;
+    }
+}
+
+function void command_thread_handler() {
+    loop {
+        // wait for command asserted
+        $sio.wait_command();
+        if (rxbuffer_len) {
+            Debug.log_int("NetSIO sending short DATA frame ", rxbuffer_len);
+            Debug.log_int("bytes missing ", sync_write_size);
+            // if there is anything in rx buffer, it means device is still waiting for it
+            // because Atari did not send enough data bytes yet, but now it started new command frame
+            send_rxbuffer(); // flush what we have (but we know it's not enough) TODO some recovery on FN end?
+        }
+        // bundle command frame bytes into block of 5 bytes
+        sync_write_size = 5;
+        // notify devices command frame started
+        $network.post_message($11, 0);
+
+        // wait for command de-asserted
+        $sio.wait_command_off();
+        if (rxbuffer_len) {
+            Debug.log_int("NetSIO sending short COMMAND frame ", rxbuffer_len);
+            Debug.log_int("bytes missing ", sync_write_size);
+            // if there is anything in rx buffer, it means device is still waiting for it
+            // because Atari did not send enough command bytes yet, but there is end of command frame now
+            send_rxbuffer(); // flush what we have (incomplete/short command frame)
+        }
+        // notify devices about end of command frame and request ACK/NAK sync
+        sync_ack_on_command_frame();
     }
 }
 
@@ -163,8 +167,6 @@ event "network_interrupt": function {
     int arg = $aux2;
 
     if (evt == $01) {
-        // txbyte = arg;
-        // tx_thread.run(txbyte_thread_run);
         // Debug.log_int("send ", arg);
         $sio.send_raw_byte(arg, in_cpb);
         // notify server that we can accept another byte
