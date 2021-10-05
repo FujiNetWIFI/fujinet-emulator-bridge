@@ -608,13 +608,13 @@ class NetSIOHub:
             else:
                 debug_print("passed", msg)
 
-
         if msg.id == NETSIO_SYNC_RESPONSE and msg.arg[1] != NETSIO_EMPTY_SYNC:
             # TODO 
             # host is not interested into this sync response
             # but there is a byte inside response, deliver it as normal byte to host ...
+            debug_print("replace", msg)
             msg.id = NETSIO_DATA_BYTE
-            msg.arg = bytes( (msg.arg[2]), )
+            msg.arg = bytes( (msg.arg[2],) )
 
         if self.host_queue.full():
             debug_print("host queue FULL")
