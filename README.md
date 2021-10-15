@@ -37,9 +37,9 @@ Copy the file [netsio.atdevice](altirra-custom-device/netsio.atdevice) to folder
 
 - To boot emulated Atari from FujiNet
 
-  First `D1:` must be removed from Altirra, File > Detach Disk, then cold reboot the emulated Atari with `Shift+F5`.
+  * First `D1:` must be removed from Altirra: File > Detach Disk > Drive 1
+  * Ensure Fast boot feature is disabled: System > Configure System > Acceleration > uncheck Fast boot in OS acceleration
+  * Reboot the emulated Atari with `Shift+F5`.
 
 - It is possible to use emulated disk devices in Altirra together with FujiNet. It's like to run FujiNet with other disk drives connected. Some disks can be from FujiNet, other disks can be emulated by Altirra. Take care to use different drive numbers.
-
-
 
