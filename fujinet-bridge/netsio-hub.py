@@ -48,6 +48,7 @@ NETSIO_ACK_SYNC         = 0x01
 ATDEV_READY             = 0x100
 ATDEV_TRANSMIT_BUFFER   = 0x101
 ATDEV_DEBUG_MESSAGE     = 0x102
+ATDEV_EMPTY_SYNC        = -1 # any value less than zero
 
 
 # local TCP port for Altirra custom device communication
@@ -390,26 +391,36 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
             # serial output speed changed
             self.hub.handle_host_msg(NetSIOMsg(event, struct.pack("<L", arg)))
         elif event < 0x100: # fit byte
-            # all other events from atdevice (one byte)
+            # all other (one byte) events from atdevice
+            if event == NETSIO_COLD_RESET:
+                self.atdev_ready.set()
             # send to connected devices
             self.hub.handle_host_msg(NetSIOMsg(event))
 
     def handle_script_event(self, event: int, arg: int, timestamp: int) -> int:
         debug_print("> SYNC ATD {:02X} {:02X}".format(event, arg))
-        if event < 0x100: # fit byte
+        result = ATDEV_EMPTY_SYNC
+        if event == NETSIO_DATA_BYTE_SYNC:
+            msg = NetSIOMsg(event, arg) # request sn will be appended
+        elif event == NETSIO_COMMAND_OFF_SYNC:
+            msg = NetSIOMsg(event) # request sn will be appended
+        elif event == NETSIO_DATA_BLOCK:
+            msg = NetSIOMsg(event, self.req_read_seg_mem(1, 0, arg)) # get data from rxbuffer segment
+        else:
+            info_print("Invalid SYNC ATD request")
+            return result
+        result = self.hub.handle_host_msg_sync(msg)
+        if result >= 0:
+            # sync response with valid ack byte
+            debug_print("ATD BUSY")
             self.atdev_ready.clear() # prevent sending anything to the host
-            if event == NETSIO_DATA_BYTE_SYNC:
-                msg = NetSIOMsg(event, arg) # request sn will be appended
-            elif event == NETSIO_DATA_BLOCK:
-                msg = NetSIOMsg(event, self.req_read_seg_mem(1, 0, arg)) # get data from rxbuffer segment
-            else:
-                msg = NetSIOMsg(event, bytes()) # request sn will be appended
-            return self.hub.handle_host_msg_sync(msg)
-        return -1
+            self.atdev_thread.busy_at = timer()
+        return result
 
     def handle_coldreset(self, timestamp):
         debug_print("> ATD COLD RESET")
-        self.hub.handle_host_msg(NetSIOMsg(NETSIO_COLD_RESET))
+        # In some cases Altirra does send Cold reset message without cold-resetting emulated Atari
+        # self.hub.handle_host_msg(NetSIOMsg(NETSIO_COLD_RESET))
 
     def handle_warmreset(self, timestamp):
         debug_print("> ATD WARM RESET")
@@ -423,6 +434,7 @@ class AtDevThread(threading.Thread):
         self.atdev_ready = atdev_ready
         self.atdev_handler = handler
         self.busy_at = timer()
+        self.request_to_stop = threading.Event()
         super().__init__()
 
     def run(self):
@@ -440,14 +452,17 @@ class AtDevThread(threading.Thread):
 
         while True:
             msg = self.queue.get()
-            if msg is None:
+            if self.request_to_stop.is_set():
                 break
 
             if not self.atdev_ready.wait(5): # TODO adjustable
-                print("ATD TIMEOUT")
+                info_print("ATD TIMEOUT")
                 # TODO timeout recovery
                 clear_queue(self.queue)
                 self.atdev_ready.set()
+
+            if self.request_to_stop.is_set():
+                break
 
             if msg.id in (NETSIO_DATA_BYTE, NETSIO_DATA_BLOCK):
                 # send byte and send buffer makes POKEY busy and
@@ -485,8 +500,9 @@ class AtDevThread(threading.Thread):
 
     def stop(self):
         debug_print("Stop AtDevThread")
-        clear_queue(self.queue) # things can cumulate here ...
-        self.queue.put(None) # stop sign
+        self.request_to_stop.set()
+        # clear_queue(self.queue) # things can cumulate here ...
+        self.queue.put(None) # unblock queue.get()
         self.join()
 
 
@@ -536,11 +552,6 @@ class NetSIOHub:
         self.host_queue = queue.Queue(3)
         self.host_ready = threading.Event()
         self.sync = NetSIOHub.SyncRequest()
-        # command frame processing
-        self.command = None
-        # self.command_ready = threading.Event()
-        self.command_lock = threading.Lock()
-        # self.ack_store = ACKStore()
 
     def run(self):
         try:
@@ -573,15 +584,17 @@ class NetSIOHub:
     def handle_host_msg_sync(self, msg:NetSIOMsg) ->int:
         if msg.id == NETSIO_DATA_BLOCK:
             self.handle_host_msg(msg) # send to devices
-            return 0
+            debug_print("< SYNC ATD +{:.0f} {:02X}".format(msg.elapsed() * 1.e6, ATDEV_EMPTY_SYNC))
+            return ATDEV_EMPTY_SYNC # return no ACK byte
+        # handle sync request
         msg.arg += bytes( (self.sync.set_request(msg.id),) ) # append request sn prior sending
         clear_queue(self.host_queue)
         if not self.device_manager.connected():
             # shortcut: no device is connected, set response now
-            self.sync.set_response(-1, self.sync.sn) # no ACK byte, set invalid value
+            self.sync.set_response(ATDEV_EMPTY_SYNC, self.sync.sn) # no ACK byte
         else:
             self.handle_host_msg(msg) # send to devices
-        result = self.sync.get_response(0.1, -1)
+        result = self.sync.get_response(0.1, ATDEV_EMPTY_SYNC)
         debug_print("< SYNC ATD +{:.0f} {:02X}".format(msg.elapsed() * 1.e6, result))
         return result
 
@@ -597,7 +610,7 @@ class NetSIOHub:
                 # we received response to current SYNC request
                 if msg.arg[1] == NETSIO_EMPTY_SYNC:
                     # empty response, no ACK/NAK
-                    self.sync.set_response(-1, sn) # no ACK byte, set invalid value
+                    self.sync.set_response(ATDEV_EMPTY_SYNC, sn) # no ACK byte
                 else:
                     # response with ACK/NAK byte and sync write size
                     self.sync.set_response(msg.arg[2] | (msg.arg[3] << 8) | (msg.arg[4] << 16), sn)
