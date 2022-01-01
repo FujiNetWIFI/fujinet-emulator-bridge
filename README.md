@@ -35,9 +35,9 @@ Copy the file [netsio.atdevice](altirra-custom-device/netsio.atdevice) to folder
 
   In FujiNet web interface, in Emulator settings enable SIO over Network option and fill in host name or IP address of computer running Altirra and hub. Save settings.
 
-- To boot emulated Atari from FujiNet
+- To boot emulated Atari from FujiNet (optional)
 
-  * First `D1:` must be removed from Altirra: File > Detach Disk > Drive 1
+  * First, `D1:` must be removed from Altirra: File > Detach Disk > Drive 1
   * Ensure Fast boot feature is disabled: System > Configure System > Acceleration > uncheck Fast boot in OS acceleration
   * Reboot the emulated Atari with `Shift+F5`.
 
