@@ -136,6 +136,7 @@ class NetSIOServer(socketserver.UDPServer):
         self.hub = hub
         self.clients_lock = threading.Lock()
         self.clients = {}
+        self.last_recv = timer()
         self.sn = 0 # TODO test only
         super().__init__(('', port), NetSIOHandler)
 
@@ -205,12 +206,16 @@ class NetSIOServer(socketserver.UDPServer):
 
 class NetSIOHandler(socketserver.BaseRequestHandler):
     """NetSIO received packet handler"""
+
     def handle(self):
         data, sock = self.request
         msg = NetSIOMsg(data[0], data[1:])
         ca = self.client_address
 
-        debug_print("< NET {}:{} [{}]".format(ca[0], ca[1], 1+len(msg.arg)), msg)
+        debug_print("< NET +{:.0f} {}:{} [{}]".format(
+            (timer()-self.server.last_recv)*1.e6,
+            ca[0], ca[1], 1+len(msg.arg)), msg)
+        self.server.last_recv = timer()
 
         if msg.id < NETSIO_CONN_MGMT:
             # events from connected/registered devices
@@ -357,17 +362,19 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
     def __init__(self, *args, **kwargs):
         debug_print("AtDevHandler")
         self.hub = None
+        self.atdev_ready = None
         self.atdev_thread = None
+        self.busy_at = timer()
         super().__init__(*args, **kwargs)
 
     def handle(self):
         """handle messages from netsio.atdevice"""
         # start thread for outgoing messages to atdevice
         self.hub = self.server.hub
-        host_queue = self.hub.host_connected()
         self.atdev_ready = threading.Event()
         self.atdev_ready.set()
-        self.atdev_thread = AtDevThread(host_queue, self.atdev_ready, self)
+        host_queue = self.hub.host_connected(self)
+        self.atdev_thread = AtDevThread(host_queue, self)
         self.atdev_thread.start()
 
         try:
@@ -382,8 +389,7 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
 
         if event == ATDEV_READY:
             # POKEY is ready to receive serial data
-            self.atdev_ready.set()
-            debug_print("ATD READY +{:.0f}".format((timer()-self.atdev_thread.busy_at)*1.e6))
+            self.set_rtr()
         elif event == NETSIO_DATA_BYTE:
             # serial byte from POKEY
             self.hub.handle_host_msg(NetSIOMsg(event, arg))
@@ -410,11 +416,6 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
             info_print("Invalid SYNC ATD request")
             return result
         result = self.hub.handle_host_msg_sync(msg)
-        if result >= 0:
-            # sync response with valid ack byte
-            debug_print("ATD BUSY")
-            self.atdev_ready.clear() # prevent sending anything to the host
-            self.atdev_thread.busy_at = timer()
         return result
 
     def handle_coldreset(self, timestamp):
@@ -426,12 +427,22 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
         debug_print("> ATD WARM RESET")
         self.hub.handle_host_msg(NetSIOMsg(NETSIO_WARM_RESET))
 
+    def clear_rtr(self):
+        debug_print("ATD BUSY")
+        self.busy_at = timer()
+        self.atdev_ready.clear()
+
+    def set_rtr(self):
+        self.atdev_ready.set()
+        debug_print("ATD READY +{:.0f}".format((timer()-self.busy_at)*1.e6))
+
+    def wait_rtr(self, timeout):
+        return self.atdev_ready.wait(timeout)
 
 class AtDevThread(threading.Thread):
     """Thread to send "messages" to Altrira atdevice"""
-    def __init__(self, queue, atdev_ready, handler):
+    def __init__(self, queue, handler):
         self.queue = queue
-        self.atdev_ready = atdev_ready
         self.atdev_handler = handler
         self.busy_at = timer()
         self.request_to_stop = threading.Event()
@@ -455,11 +466,11 @@ class AtDevThread(threading.Thread):
             if self.request_to_stop.is_set():
                 break
 
-            if not self.atdev_ready.wait(5): # TODO adjustable
+            if not self.atdev_handler.wait_rtr(5): # TODO adjustable
                 info_print("ATD TIMEOUT")
                 # TODO timeout recovery
                 clear_queue(self.queue)
-                self.atdev_ready.set()
+                self.atdev_handler.set_rtr()
 
             if self.request_to_stop.is_set():
                 break
@@ -468,9 +479,7 @@ class AtDevThread(threading.Thread):
                 # send byte and send buffer makes POKEY busy and
                 # we have to receive confirmation when it is ready again
                 # prior sending more data
-                debug_print("ATD BUSY")
-                self.atdev_ready.clear()
-                self.busy_at = timer()
+                self.atdev_handler.clear_rtr()
 
             if msg.id == NETSIO_DATA_BLOCK:
                 # place serial data to netsio.atdevice rxbuffer i.e. segment 0
@@ -551,6 +560,7 @@ class NetSIOHub:
         self.host_manager = host_manager
         self.host_queue = queue.Queue(3)
         self.host_ready = threading.Event()
+        self.host_handler = None
         self.sync = NetSIOHub.SyncRequest()
 
     def run(self):
@@ -561,14 +571,16 @@ class NetSIOHub:
             self.device_manager.stop()
             self.host_manager.stop()
 
-    def host_connected(self):
+    def host_connected(self, host_handler):
         info_print("Host connected")
+        self.host_handler = host_handler
         self.host_ready.set()
         return self.host_queue
 
     def host_disconnected(self):
         info_print("Host disconnected")
         self.host_ready.clear()
+        self.host_handler = None
         clear_queue(self.host_queue)
 
     def handle_host_msg(self, msg:NetSIOMsg):
@@ -613,6 +625,7 @@ class NetSIOHub:
                     self.sync.set_response(ATDEV_EMPTY_SYNC, sn) # no ACK byte
                 else:
                     # response with ACK/NAK byte and sync write size
+                    self.host_handler.clear_rtr()
                     self.sync.set_response(msg.arg[2] | (msg.arg[3] << 8) | (msg.arg[4] << 16), sn)
                 return
             elif msg.id in (NETSIO_DATA_BYTE, NETSIO_DATA_BLOCK):
