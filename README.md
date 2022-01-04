@@ -25,7 +25,8 @@ Copy the file [netsio.atdevice](altirra-custom-device/netsio.atdevice) to folder
 
 - Start NetSIO hub
 
-  `python3 netsio-hub.py`
+  Change to `extras/deviceserver` directory of Altirra
+  Start NetSIO hub with `python3 netsio-hub.py`
 
 - Connect Altirra with NetSIO hub
 
