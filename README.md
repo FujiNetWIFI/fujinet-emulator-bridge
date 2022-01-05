@@ -19,14 +19,13 @@ Signals and data on SIO bus are translated and send over network as UDP datagram
 
 ## Installing
 
-Copy the file [netsio.atdevice](altirra-custom-device/netsio.atdevice) to folder `<ALTIRRA_BASEDIR>/extras/sampledevices` on your PC. Copy the file [netsio-hub.py](fujinet-bridge/netsio-hub.py) to folder `<ALTIRRA_BASEDIR>/extras/deviceserver`. Replace `<ALTIRRA_BASEDIR>` with a real path where the Altirra is installed, for example: `C:/Altirra`.
+Copy the file [netsio.atdevice](altirra-custom-device/netsio.atdevice) to folder `<ALTIRRA_BASEDIR>\extras\sampledevices` on your PC. Copy the file [netsio-hub.py](fujinet-bridge/netsio-hub.py) to folder `<ALTIRRA_BASEDIR>\extras\deviceserver`. Replace `<ALTIRRA_BASEDIR>` with a real path where the Altirra is installed, for example: `C:\Altirra`.
 
 ## Running
 
 - Start NetSIO hub
 
-  Change to `extras/deviceserver` directory of Altirra
-  Start NetSIO hub with `python3 netsio-hub.py`
+  Open command prompt and change to `extras\deviceserver` directory of Altirra. Start NetSIO hub with `python3 netsio-hub.py`
 
 - Connect Altirra with NetSIO hub
 
