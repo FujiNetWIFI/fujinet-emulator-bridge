@@ -160,6 +160,7 @@ function void debug_command_frame()
         if (cmd == $52) Debug.log_int("Disk READ ", aux);
         else if(cmd == $53) Debug.log("Disk STATUS");
         else if(cmd == $57) Debug.log_int("Disk WRITE ", aux);
+        else if(cmd == $50) Debug.log_int("Disk PUT ", aux);
         else if(cmd == $3F) Debug.log("Disk GET HSIO");
         else Debug.log_int("Disk CMD ", cmd);
     }
