@@ -11,29 +11,31 @@ High level diagram:
 
 The top part of the diagram shows generic building blocks. At the bottom part the current implementation is depicted.
 
-[Altirra](https://virtualdub.org/altirra.html) is a popular Atari emulator which runs under Windows. Linux users can run it with Wine. Custom devices can be "connected to Atari" in Configure System / Peripherals / Devices dialog. `netsio.atdevice` is  a device which connects Altirra with NetSIO hub.
+[Altirra](https://virtualdub.org/altirra.html) is a popular Atari emulator which runs under Windows. Linux and macOS users can run it with Wine. Custom devices can be "connected to Atari" in Configure System / Peripherals / Devices dialog. `netsio.atdevice` is  a device which connects Altirra with NetSIO hub.
 
-The role of NetSIO hub is to rely data and signals from emulated SIO bus to all connected devices. `netsio-hub.py` is written in Python 3 and it must be running on the same computer as Altirra.
+The role of NetSIO hub is to rely data and signals from emulated SIO bus to all connected devices. NetSIO hub is written in Python3 and it must be running on the same computer as Altirra. It is built on top of Custom Device Server which is part of Altirra emulator.
 
-Signals and data on SIO bus are translated and send over network as UDP datagrams. This is handled by  [NetSIO](netsio.md) protocol.
+Signals and data on SIO bus are translated and sent over network as UDP datagrams. This is handled by  [NetSIO](netsio.md) protocol.
 
 ## Installing
 
-Copy the file [netsio.atdevice](altirra-custom-device/netsio.atdevice) to folder `<ALTIRRA_BASEDIR>\extras\sampledevices` on your PC. Copy the file [netsio-hub.py](fujinet-bridge/netsio-hub.py) to folder `<ALTIRRA_BASEDIR>\extras\deviceserver`. Replace `<ALTIRRA_BASEDIR>` with a real path where the Altirra is installed, for example: `C:\Altirra`.
+Get copy of this repository. Use `git clone` or Download ZIP from GitHub and unzip downloaded file.
 
 ## Running
 
 - Start NetSIO hub
 
-  Open command prompt and change to `extras\deviceserver` directory of Altirra. Start NetSIO hub with `python3 netsio-hub.py`
+  Python 3 is needed and must be already installed. The command `python -V` (or `python3 -V`) should report Python version 3.x
 
+  Open command prompt and change to the directory with obtained repository. From there enter subdirectory named `fujinet-bridge`. Start NetSIO hub with `python -m netsiohub`.
+  
 - Connect Altirra with NetSIO hub
 
-  In Altirra: System > Configure System ... under Peripherals / Devices add Custom device (scroll down) and select `netsio.atdevice`
+  In Altirra: System > Configure System ... under Peripherals / Devices add Custom device (scroll down) and navigate to `altirra-custom-device` folder. Here select the `netsio.atdevice`.
 
 - Connect FujiNet with NetSIO hub
 
-  In FujiNet web interface, in Emulator settings enable SIO over Network option and fill in host name or IP address of computer running Altirra and hub. Save settings.
+  In FujiNet web interface, in Emulator settings (at the page bottom) enable SIO over Network option and fill in host name or IP address of computer running Altirra and hub. Save settings.
 
 - To boot emulated Atari from FujiNet (optional)
 
