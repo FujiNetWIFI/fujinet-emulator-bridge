@@ -27,7 +27,7 @@ Get copy of this repository. Use `git clone` or Download ZIP from GitHub and unz
 
   Python 3 is needed and must be already installed. The command `python -V` (or `python3 -V`) should report Python version 3.x
 
-  Open command prompt and change to the directory with obtained repository. From there enter subdirectory named `fujinet-bridge`. Start NetSIO hub with `python -m netsiohub`.
+  Open command prompt and change to the directory with obtained repository. From there enter subdirectory named `fujinet-bridge`. Start NetSIO hub with `python -m netsiohub` (or `python3 -m netsiohub` if `python` command is not Python 3 in your environment).
   
 - Connect Altirra with NetSIO hub
 
