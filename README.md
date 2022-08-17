@@ -32,6 +32,8 @@ Get copy of this repository. Use `git clone` or Download ZIP from GitHub and unz
 - Connect Altirra with NetSIO hub
 
   In Altirra: System > Configure System ... under Peripherals / Devices add Custom device (scroll down) and navigate to `altirra-custom-device` folder. Here select the `netsio.atdevice`.
+  
+  More detailed [instructions with some pictures](https://github.com/a8jan/fujinet-pc-launcher/blob/master/Install.md#4-connect-altirra-with-fujinet).
 
 - Connect FujiNet with NetSIO hub
 
