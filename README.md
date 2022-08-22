@@ -27,11 +27,13 @@ Get copy of this repository. Use `git clone` or Download ZIP from GitHub and unz
 
   Python 3 is needed and must be already installed. The command `python -V` (or `python3 -V`) should report Python version 3.x
 
-  Open command prompt and change to the directory with obtained repository. From there enter subdirectory named `fujinet-bridge`. Start NetSIO hub with `python -m netsiohub`.
+  Open command prompt and change to the directory with obtained repository. From there enter subdirectory named `fujinet-bridge`. Start NetSIO hub with `python -m netsiohub` (or `python3 -m netsiohub` if `python` command is not Python 3 in your environment).
   
 - Connect Altirra with NetSIO hub
 
   In Altirra: System > Configure System ... under Peripherals / Devices add Custom device (scroll down) and navigate to `altirra-custom-device` folder. Here select the `netsio.atdevice`.
+  
+  More detailed [instructions with some pictures](https://github.com/a8jan/fujinet-pc-launcher/blob/master/Install.md#4-connect-altirra-with-fujinet). Check the steps Connect Altirra with FujiNet and on.
 
 - Connect FujiNet with NetSIO hub
 
