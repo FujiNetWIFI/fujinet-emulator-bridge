@@ -128,7 +128,8 @@ class NetInThread(threading.Thread):
 
     def stop(self):
         debug_print("Stop NetInThread")
-        self.server.shutdown()
+        if self.server is not None:
+            self.server.shutdown()
 
 
 class NetSIOServer(socketserver.UDPServer):
