@@ -3,7 +3,7 @@
 // Requires the netsio-server.py script to handle UDP communications on port
 // 9996
 
-option "name": "NetSIO - SIO over network";
+option "name": "NetSIO - SIO over network v0.11";
 // option "debug": false; // not for 3.90
 
 option "network": 
@@ -181,6 +181,7 @@ function void debug_command_frame()
         else if(cmd == $F3) Debug.log("Fuji WRITE HOSTS");
         else if(cmd == $F2) Debug.log("Fuji READ DEVICES");
         else if(cmd == $F1) Debug.log("Fuji WRITE DEVICES");
+        else if(cmd == $EA) Debug.log("Fuji GET WIFI ENABLED");
         else if(cmd == $E9) Debug.log("Fuji UNMOUNT IMAGE");
         else if(cmd == $E8) Debug.log("Fuji GET CONFIG");
         else if(cmd == $E7) Debug.log("Fuji CREATE IMAGE");
@@ -424,7 +425,7 @@ event "network_interrupt": function
 event "init": function 
 {
     $sio.enable_raw(true);
-    Debug.log("NetSIO Initialized");
+    Debug.log("NetSIO v0.11");
 };
 
 event "cold_reset": function 
