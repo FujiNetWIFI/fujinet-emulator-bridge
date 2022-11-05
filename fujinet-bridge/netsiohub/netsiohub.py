@@ -176,14 +176,16 @@ class NetSIOServer(socketserver.UDPServer):
     def send_to_clients(self, msg):
         """broadcast all connected netsio devices"""
         t = time.time()
+        expire = False
         with self.clients_lock:
-            # clients = self.clients.values()
-            clients = [c for c in self.clients.values() if c.expire_time > t]
-        if clients:
-            for c in clients:
-                # c.sock.sendto(struct.pack('B', msg.id) + msg.arg, c.address)
-                # TODO test only
-                c.sock.sendto(struct.pack('B', msg.id) + msg.arg + struct.pack('B', self.sn), c.address)
+            clients = self.clients.values()
+        for c in clients:
+            if c.expire_time <= t:
+                expire = True
+                continue
+            # c.sock.sendto(struct.pack('B', msg.id) + msg.arg, c.address)
+            # TODO test only
+            c.sock.sendto(struct.pack('B', msg.id) + msg.arg + struct.pack('B', self.sn), c.address)
             debug_print("> NET +{:.0f} {} [{}] {} {:02X}".format(
                         msg.elapsed() * 1.e6,
                         " ".join(["{}:{}".format(c.address[0], c.address[1]) for c in clients]),
@@ -191,6 +193,7 @@ class NetSIOServer(socketserver.UDPServer):
                         msg,
                         self.sn))
             self.sn = (self.sn +1) & 255
+        if expire:
             # remove expired clients
             self.expire_clients()
     
@@ -233,8 +236,6 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
                 # device disconnected, deregister client
                 self.server.deregister_client(self.client_address)
             elif msg.id == NETSIO_DEVICE_CONNECT:
-                # remove expired clients, if any
-                self.server.expire_clients()
                 # device connected, register client for netsio messages
                 self.server.register_client(self.client_address, sock)
             elif msg.id == NETSIO_PING_REQUEST:
