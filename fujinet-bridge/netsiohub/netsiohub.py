@@ -13,7 +13,7 @@ import argparse
 from timeit import default_timer as timer
 from datetime import datetime
 
-HUB_VERSION = "v0.1"
+HUB_VERSION = "v0.11"
 
 NETSIO_DATA_BYTE        = 0x01
 NETSIO_DATA_BLOCK       = 0x02
