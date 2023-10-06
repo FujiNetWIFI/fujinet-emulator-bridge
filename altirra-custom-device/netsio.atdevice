@@ -64,8 +64,8 @@ function void debug_command_frame()
     {
         if (cmd == $52) Debug.log_int("Disk READ ", aux);
         else if(cmd == $53) Debug.log("Disk STATUS");
-        else if(cmd == $57) Debug.log_int("Disk WRITE ", aux);
-        else if(cmd == $50) Debug.log_int("Disk PUT ", aux);
+        else if(cmd == $57) {Debug.log_int("Disk WRITE ", aux); write_size_hint = 129;} // TODO detect sector size !!
+        else if(cmd == $50) {Debug.log_int("Disk PUT ", aux); write_size_hint = 129;}   // TODO detect sector size !!
         else if(cmd == $3F) Debug.log("Disk GET HSIO");
         else Debug.log_int("Disk CMD ", cmd);
     }
@@ -392,7 +392,7 @@ function void rxbyte_thread_handler()
                 rxbuffer.write_byte(rxbuffer_len, rxbyte);
                 rxbuffer_len = 1 + rxbuffer_len;
                 //if (rxbuffer_len == 512)
-                if (rxbuffer_len == 66) {
+                if (rxbuffer_len == 65) {
                     //$network.post_message($103, 7); // debug nop
                     buffer_to_server();
                     //$network.post_message($103, 8); // debug nop
