@@ -408,9 +408,9 @@ function void rxbyte_thread_handler()
             else {
                 [debug] Debug.log_int(">   to server ", rxbyte);
             }
-            $network.post_message($103, 9); // debug nop
+            //$network.post_message($103, 9); // debug nop
             $network.post_message($01, rxbyte);
-            $network.post_message($103, $a); // debug nop
+            //$network.post_message($103, $a); // debug nop
         }
     }
 }
@@ -487,7 +487,7 @@ event "network_interrupt": function
 event "init": function 
 {
     $sio.enable_raw(true);
-    Debug.log("NetSIO v0.12");
+    Debug.log("NetSIO v0.13");
     [debug] Debug.log("DEBUG enabled");
 };
 
