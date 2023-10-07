@@ -38,29 +38,45 @@ class SerInThread(threading.Thread):
         buffer = bytearray()
         buffer_timestamp = 0.0
         msg = None
+        errors = 0
+
         # read data + TODO poll proceed
         while not self.stop_flag.is_set():
-            # anything SerOutThread needs to finish?
+            # anything SerOutThread needs to do?
             if not self.manager.allow_read.is_set():
                 self.yield_serial_output()
-                continue # handle output with priority
+                continue # repeat (handle output with priority)
 
             # handle proceed signal
-            proceed = self.get_proceed()
-            if proceed != proceed_save:
-                proceed_save = proceed
-                self.hub.handle_device_msg(
-                    NetSIOMsg(NETSIO_PROCEED_ON if proceed else NETSIO_PROCEED_OFF),
-                    None)
-                debug_print("< SER PROCEED", "ON" if proceed else "OFF")
+            try:
+                proceed = self.get_proceed()
+            except Exception as e:
+                # ignore serial port exceptions
+                print("Serial port error:", e)
+                errors += 1
+            else:
+                if proceed != proceed_save:
+                    proceed_save = proceed
+                    self.hub.handle_device_msg(
+                        NetSIOMsg(NETSIO_PROCEED_ON if proceed else NETSIO_PROCEED_OFF),
+                        None)
+                    debug_print("< SER PROCEED", "ON" if proceed else "OFF")
 
             # read (with timeout) bytes from serial port
             try:
                 d = self.serial.read(BUFFER_SIZE-len(buffer))
-            except:
+            except Exception as e:
                 # ignore serial port exceptions
-                print("Exception: Shit on serial port!")
+                print("Serial port error:", e)
                 d = bytes()
+                errors += 1
+
+            if errors >= 10:
+                print("Suspending SerInThread")
+                time.sleep(5)
+                print("SerInThread resumed")
+                errors = 0
+
             if len(d):
                 # data was read
                 debug_print("< SER IN [{}] {}".format(len(d), " ".join(["{:02X}".format(b) for b in d])))
@@ -185,8 +201,8 @@ class SerOutThread(threading.Thread):
             self.pause_serial_input()
             self.serial.reset_input_buffer()
             self.serial.reset_output_buffer()
-            self.serial.baudrate = baud
-            debug_print("= SER SPEED {}".format(baud))
+            self.serial.baudrate = int(baud*0.979)
+            debug_print("= SER SPEED {} ({})".format(baud, int(baud*0.97)))
             # notify host that device changed speed too (let's hope)
             self.hub.handle_device_msg(msg, None)
             self.resume_serial_input()

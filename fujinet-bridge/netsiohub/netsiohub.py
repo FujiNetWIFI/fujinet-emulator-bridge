@@ -594,12 +594,12 @@ def get_arg_parser(full=True):
     port_grp = arg_parser.add_mutually_exclusive_group()
     port_grp.add_argument('--netsio-port', type=int, default=NETSIO_PORT,
         help='Change UDP port used by NetSIO peripherals (default {})'.format(NETSIO_PORT))
-    serial_grp = port_grp.add_argument_group()
-    serial_grp.add_argument('--serial-port',
+    #serial_grp = port_grp.add_argument_group("Serial port")
+    port_grp.add_argument('--serial',
         help='Switch to serial port mode. Specify serial port (device) to use for communication with peripherals.')
-    serial_grp.add_argument('--command-on', default='RTS',
+    arg_parser.add_argument('--command', default='RTS', choices=['RTS','DTR'],
         help='Specify how is COMMAND signal connected, value can be RTS (default) or DTR')
-    serial_grp.add_argument('--proceed-on', default='CTS',
+    arg_parser.add_argument('--proceed', default='CTS', choices=['CTS','DSR'],
         help='Specify how is PROCEED signal connected, value can be CTS (default) or DSR')
     arg_parser.add_argument('-d', '--debug', dest='debug', action='store_true', help='Print debug output')
     if full:
@@ -627,9 +627,9 @@ def main():
         enable_debug()
 
     # get device manager (to talk to peripheral device)
-    if args.serial_port:
+    if args.serial:
         if has_serial:
-            device_manager = SerialSIOManager(args.serial_port, args.command_on, args.proceed_on)
+            device_manager = SerialSIOManager(args.serial, args.command, args.proceed)
         else:
             print("pySerial module was not found. To install pySerial module run 'python -m pip install pyserial'.")
             return -1

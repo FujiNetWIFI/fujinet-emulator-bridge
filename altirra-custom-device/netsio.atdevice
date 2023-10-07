@@ -358,12 +358,12 @@ function void rxbyte_thread_handler()
         rxbyte = $sio.recv_raw_byte();
         //$network.post_message($103, 2); // debug nop
         if (out_cpb != $aux) {
-            [debug] Debug.log_int("CPB: ", $aux);
+            Debug.log_int("CPB: ", $aux);
             //$network.post_message($103, 3); // debug nop
             buffer_to_server();
             out_cpb = $aux;
-            // baud = 1789773 / $aux;
-            baud = 1736238 / $aux;
+            //baud = 1789773 / $aux;
+            baud = 1789760 / $aux;
             Debug.log_int("NetSIO from Atari @ ", baud);
             $network.post_message($80, baud);
             //$network.post_message($103, 4); // debug nop
@@ -441,8 +441,8 @@ event "network_interrupt": function
         // Thread.sleep(400); // yield workaround for 3.90
     }
     else if (evt == $80) {
-        // in_cpb = 1789773 / arg;
-        in_cpb = 1736238 / arg;
+        //in_cpb = 1789773 / arg;
+        in_cpb = 1789760 / arg;
         Debug.log_int("NetSIO to Atari @ ", arg);
     }
     else if (evt == $31) {
@@ -496,8 +496,8 @@ event "cold_reset": function
     txbuffer_len = 0;
     rxbuffer_len = 0;
     // assume default 19200 baud
-    out_cpb = 93;
-    in_cpb = 93;
+    out_cpb = 94;
+    in_cpb = 94;
 
     sync_write_size = 0;
     processing_message = 0;
