@@ -5,7 +5,7 @@ from datetime import datetime
 from timeit import default_timer as timer
 
 
-HUB_VERSION = "v0.13"
+HUB_VERSION = "v0.14"
 
 
 NETSIO_DATA_BYTE        = 0x01
@@ -28,6 +28,7 @@ NETSIO_PING_REQUEST     = 0xC2
 NETSIO_PING_RESPONSE    = 0xC3
 NETSIO_ALIVE_REQUEST    = 0xC4
 NETSIO_ALIVE_RESPONSE   = 0xC5
+NETSIO_CREDIT           = 0xC6
 NETSIO_WARM_RESET       = 0xFE
 NETSIO_COLD_RESET       = 0xFF
 
@@ -82,15 +83,54 @@ def clear_queue(q):
     except queue.Empty:
         pass
 
+def adtos(addr):
+    return "{}:{}".format(*addr)
 
 class NetSIOMsg:
+    msg_labels = {
+        0x01 : "DATA_BYTE",
+        0x02 : "DATA_BLOCK",
+        0x09 : "DATA_BYTE_SYNC",
+        0x10 : "COMMAND_OFF",
+        0x11 : "COMMAND_ON",
+        0x18 : "COMMAND_OFF_SYNC",
+        0x20 : "MOTOR_OFF",
+        0x21 : "MOTOR_ON",
+        0x30 : "PROCEED_OFF",
+        0x31 : "PROCEED_ON",
+        0x40 : "INTERRUPT_OFF",
+        0x41 : "INTERRUPT_ON",
+        0x80 : "SPEED_CHANGE",
+        0x81 : "SYNC_RESPONSE",
+        0xC0 : "DEVICE_DISCONNECT",
+        0xC1 : "DEVICE_CONNECT",
+        0xC2 : "PING_REQUEST",
+        0xC3 : "PING_RESPONSE",
+        0xC4 : "ALIVE_REQUEST",
+        0xC5 : "ALIVE_RESPONSE",
+        0xC6 : "CREDIT",
+        0xFE : "WARM_RESET",
+        0xFF : "COLD_RESET",
+
+        # Altirra specific
+        0x100 : "READY",
+        0x101 : "TRANSMIT_BUFFER",
+        0x102 : "DEBUG_TEXT",
+        0x103 : "NOP",
+    }
+
     def __init__(self, id, arg=None):
-        self.id = id
-        if arg is None:
-            self.arg = bytes()
-        else:
-            self.arg = arg if isinstance(arg, (bytes, bytearray)) else struct.pack('B', arg)
         self.time = timer()
+        self.id:int = id
+        self.arg:bytearray = \
+            bytearray() if arg is None else \
+            bytearray(arg) if isinstance(arg, (bytes, list, tuple)) else \
+            arg if isinstance(arg, bytearray) else \
+            bytearray(struct.pack('B', arg))
+
+    @property
+    def label(self):
+        return NetSIOMsg.msg_labels.get(self.id, "UNKNOWN")
 
     def elapsed(self):
         return timer() - self.time
@@ -98,10 +138,18 @@ class NetSIOMsg:
     def arg_str(self):
         return " ".join(["{:02X}".format(b) for b in self.arg])
 
-    def __str__(self):
-        return "{:02X}{}{}".format(
-            self.id, " " if len(self.arg) else"", self.arg_str())
+    # def __str__(self):
+    #     return "{:02X}{}{}".format(
+    #         self.id, " " if len(self.arg) else"", self.arg_str())
 
+    def __str__(self):
+        return "{:02X}:{}{} +{:.0f} {}".format(
+            self.id,
+            self.label,
+            "[{}]".format(len(self.arg)) if len(self.arg) else"",
+            (timer() - self.time)*1.e6,
+            " ".join(["{:02X}".format(b) for b in self.arg])
+        )
 
 class NetSIOHub:
     pass

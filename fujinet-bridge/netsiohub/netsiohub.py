@@ -29,7 +29,8 @@ class NetSIOClient:
         self.address = address
         self.sock = sock
         self.expire_time = time.time() + ALIVE_EXPIRATION
-        self.cpb = 93; # defalt 93 CPB (19200 baud)
+        # self.cpb = 94 # default 94 CPB (19200 baud)
+        self.credit = 0
 
 
 class NetInThread(threading.Thread):
@@ -71,13 +72,17 @@ class NetSIOServer(socketserver.UDPServer):
             if address not in self.clients:
                 client = NetSIOClient(address, sock)
                 self.clients[address] = client
-                info_print("Device connected {}:{} [{}]".format(address[0], address[1], len(self.clients)))
+                info_print("Device connected: {}  Devices: {}".format(adtos(address), len(self.clients)))
             else:
                 client = self.clients[address]
                 client.sock = sock
                 client.expire_time = ALIVE_EXPIRATION + time.time()
-                info_print("Device reconnected {}:{} [{}]".format(address[0], address[1], len(self.clients)))
-            self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
+                info_print("Device reconnected: {}  Devices: {}".format(addtos(address), len(self.clients)))
+        self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
+        # give the client some initial credit
+        msg = NetSIOMsg(NETSIO_CREDIT, 16) # TODO initial credit
+        client.sock.sendto(struct.pack('B', msg.id) + msg.arg, address)
+        debug_print("> NET {} {}".format(adtos(address), msg))
         return client
 
     def deregister_client(self, address, expired=False):
@@ -88,8 +93,8 @@ class NetSIOServer(socketserver.UDPServer):
                 client = None
             count = len(self.clients)
         if client is not None:
-            info_print("Device disconnected {}{}:{} [{}]".format(
-                "(connection expired) " if expired else "", address[0], address[1], count))
+            info_print("Device disconnected{}: {}  Devices: {}".format(
+                " (connection expired)" if expired else "", adtos(address), count))
             self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_DISCONNECT), client)
 
     def get_client(self, address):
@@ -97,26 +102,24 @@ class NetSIOServer(socketserver.UDPServer):
             client = self.clients.get(address)
         return client
 
-    def send_to_clients(self, msg):
+    def send_to_client(self, client:NetSIOClient, msg):
+        client.sock.sendto(struct.pack('B', msg.id) + msg.arg, client.address)
+        debug_print("> NET {} {}".format(adtos(client.address), msg))
+
+    def send_to_all(self, msg):
         """broadcast all connected netsio devices"""
         t = time.time()
         expire = False
         with self.clients_lock:
             clients = self.clients.values()
+        # TODO test only
+        msg.arg.append(self.sn)
+        self.sn = (1 + self.sn) & 255
         for c in clients:
             if c.expire_time <= t:
                 expire = True
                 continue
-            # c.sock.sendto(struct.pack('B', msg.id) + msg.arg, c.address)
-            # TODO test only
-            c.sock.sendto(struct.pack('B', msg.id) + msg.arg + struct.pack('B', self.sn), c.address)
-            debug_print("> NET +{:.0f} {} [{}] {} {:02X}".format(
-                        msg.elapsed() * 1.e6,
-                        " ".join(["{}:{}".format(c.address[0], c.address[1]) for c in clients]),
-                        1+len(msg.arg), 
-                        msg,
-                        self.sn))
-            self.sn = (self.sn +1) & 255
+            self.send_to_client(c, msg)
         if expire:
             # remove expired clients
             self.expire_clients()
@@ -141,9 +144,9 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
         msg = NetSIOMsg(data[0], data[1:])
         ca = self.client_address
 
-        debug_print("< NET +{:.0f} {}:{} [{}]".format(
+        debug_print("< NET +{:.0f} {} {}".format(
             (timer()-self.server.last_recv)*1.e6,
-            ca[0], ca[1], 1+len(msg.arg)), msg)
+            adtos(ca), msg))
         self.server.last_recv = timer()
 
         if msg.id < NETSIO_CONN_MGMT:
@@ -164,20 +167,16 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
                 self.server.register_client(self.client_address, sock)
             elif msg.id == NETSIO_PING_REQUEST:
                 # ping request, send ping response (always)
-                # TODO send_to_client
-                sock.sendto(struct.pack('B', NETSIO_PING_RESPONSE), self.client_address)
-                debug_print("> NET {}:{} [1] {:02X}".format(
-                    self.client_address[0], self.client_address[1], NETSIO_PING_RESPONSE))
+                self.server.send_to_client(
+                    NetSIOClient(self.client_address, sock),
+                    NetSIOMsg(NETSIO_PING_RESPONSE)
+                )
             elif msg.id == NETSIO_ALIVE_REQUEST:
                 # alive, send alive response (only if connected/registered)
                 client = self.server.get_client(self.client_address)
                 if client is not None:
-                    # TODO send_to_client
                     client.expire_time = ALIVE_EXPIRATION + time.time()
-                    sock.sendto(struct.pack('B', NETSIO_ALIVE_RESPONSE), self.client_address)
-                    debug_print("> NET {}:{} [1] {:02X}".format(
-                        self.client_address[0], self.client_address[1], NETSIO_ALIVE_RESPONSE))
-
+                    self.server.send_to_client(client, NetSIOMsg(NETSIO_ALIVE_RESPONSE))
 
 class NetOutThread(threading.Thread):
     """Thread to send "messages" to connected netsio devices"""
@@ -192,7 +191,7 @@ class NetOutThread(threading.Thread):
             msg = self.queue.get()
             if msg is None:
                 break
-            self.server.send_to_clients(msg)
+            self.server.send_to_all(msg)
 
         debug_print("NetOutThread stopped")
 
@@ -305,30 +304,45 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
 
     def handle_script_post(self, event: int, arg: int, timestamp: int):
         """handle post_message from netsio.atdevice"""
-        debug_print("> ATD {:02X} {:02X} ++{}".format(event, arg, timestamp-self.emu_ts))
+        ts = timer()
         self.emu_ts = timestamp
+        msg:NetSIOMsg = None
 
         if event == ATDEV_READY:
             # POKEY is ready to receive serial data
-            self.set_rtr()
+            msg = NetSIOMsg(event)
         elif event == NETSIO_DATA_BYTE:
             # serial byte from POKEY
-            self.hub.handle_host_msg(NetSIOMsg(event, arg))
+            msg = NetSIOMsg(event, arg)
+            # self.hub.handle_host_msg(NetSIOMsg(event, arg))
         elif event == NETSIO_SPEED_CHANGE:
             # serial output speed changed
-            self.hub.handle_host_msg(NetSIOMsg(event, struct.pack("<L", arg)))
+            msg = NetSIOMsg(event, struct.pack("<L", arg))
+            # self.hub.handle_host_msg(NetSIOMsg(event, struct.pack("<L", arg)))
         elif event < 0x100: # fit byte
             # all other (one byte) events from atdevice
+            msg = NetSIOMsg(event)
             if event == NETSIO_COLD_RESET:
                 self.atdev_ready.set()
             # send to connected devices
-            self.hub.handle_host_msg(NetSIOMsg(event))
+            msg = NetSIOMsg(event)
+            # self.hub.handle_host_msg(NetSIOMsg(event))
         elif event == ATDEV_DEBUG_NOP:
-            debug_print("> ATD NOP {:02X}".format(arg))
+            msg = NetSIOMsg(event)
+
+        msg.time = ts
+        debug_print("> ATD {:02X} {:02X} ++{} -> {}".format(event, arg, timestamp-self.emu_ts, msg))
+        if event == ATDEV_READY:
+            self.set_rtr()
+        else:
+            # send message to connected device
+            self.hub.handle_host_msg(msg)
 
     def handle_script_event(self, event: int, arg: int, timestamp: int) -> int:
-        debug_print("> ATD CALL {:02X} {:02X} ++{}".format(event, arg, timestamp-self.emu_ts))
+        ts = timer()
         self.emu_ts = timestamp
+        msg:NetSIOMsg = None
+        local = False
 
         result = ATDEV_EMPTY_SYNC
         if event == NETSIO_DATA_BYTE_SYNC:
@@ -336,14 +350,25 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
         elif event == NETSIO_COMMAND_OFF_SYNC:
             msg = NetSIOMsg(event) # request sn will be appended
         elif event == NETSIO_DATA_BLOCK:
-            msg = NetSIOMsg(event, self.req_read_seg_mem(1, 0, arg)) # get data from rxbuffer segment
+            msg = NetSIOMsg(event) # data block will be read
         elif event == ATDEV_DEBUG_NOP:
-            debug_print("> ATD NOP CALL", arg)
-            return arg
-        else:
+            msg = NetSIOMsg(event, arg)
+            local = True
+            result = arg
+        if not msg:
+            debug_print("> ATD CALL {:02X} {:02X} ++{}".format(event, arg, timestamp-self.emu_ts))
             info_print("Invalid ATD CALL")
+            debug_print("< ATD RESPONSE", result)
             return result
-        result = self.hub.handle_host_msg_sync(msg)
+        msg.time = ts
+        debug_print("> ATD CALL {:02X} {:02X} ++{} -> {}".format(event, arg, timestamp-self.emu_ts, msg))
+        if event == NETSIO_DATA_BLOCK:
+            # get data from rxbuffer segment
+            debug_print("< ATD READ_BUFFER", arg)
+            msg.arg = self.req_read_seg_mem(1, 0, arg)
+            debug_print("  ATD ->", msg)
+        if not local:
+            result = self.hub.handle_host_msg_sync(msg)
         return result
 
     def handle_coldreset(self, timestamp):
@@ -416,28 +441,32 @@ class AtDevThread(threading.Thread):
                 self.atdev_handler.clear_rtr()
 
             if msg.id == NETSIO_DATA_BLOCK:
-                # place serial data to netsio.atdevice rxbuffer i.e. segment 0
-                self.atdev_handler.req_write_seg_mem(0, 0, msg.arg)
                 rxsize = len(msg.arg)
-                debug_print("< ATD +{:.0f} BUFFER [{}] {}".format(msg.elapsed() * 1.e6, rxsize, msg.arg_str()))
+                # place serial data to netsio.atdevice rxbuffer i.e. segment 0
+                debug_print("< ATD WRITE_BUFFER {} <- {}".format(rxsize, msg))
+                self.atdev_handler.req_write_seg_mem(0, 0, msg.arg)
                 # instruct netsio.atdevice to send rxbuffer to emulated Atari
+                debug_print("< ATD {:02X}:TRANSMIT_BUFFER {} +{:.0f}".format(
+                    ATDEV_TRANSMIT_BUFFER,
+                    rxsize,
+                    msg.elapsed() * 1.e6)
+                )
                 self.atdev_handler.req_interrupt(ATDEV_TRANSMIT_BUFFER, rxsize)
-                debug_print("< ATD +{:.0f} {:02X} {:02X}".format(msg.elapsed() * 1.e6, ATDEV_TRANSMIT_BUFFER, rxsize))
             elif msg.id == NETSIO_DATA_BYTE:
                 # serial byte from remote device
+                debug_print("< ATD {}".format(msg))
                 self.atdev_handler.req_interrupt(msg.id, msg.arg[0])
-                debug_print("< ATD +{:.0f} {}".format(msg.elapsed() * 1.e6, msg))
             elif msg.id == NETSIO_SPEED_CHANGE:
                 # speed change
                 if len(msg.arg) == 4:
+                    debug_print("< ATD {}".format(msg))
                     self.atdev_handler.req_interrupt(msg.id, struct.unpack('<L', msg.arg)[0])
-                    debug_print("< ATD +{:.0f} {}".format(msg.elapsed() * 1.e6, msg))
                 else:
                     info_print("Invalid NETSIO_SPEED_CHANGE message")
             else:
                 # all other
                 self.atdev_handler.req_interrupt(msg.id, msg.arg[0] if len(msg.arg) else 0)
-                debug_print("< ATD +{:.0f} {}".format(msg.elapsed() * 1.e6, msg))
+                debug_print("< ATD {}".format(msg))
 
         debug_print("AtDevThread stopped")
 
@@ -531,10 +560,10 @@ class NetSIOHub:
         """handle message from Atari host emulator, emulation is paused, emulator is waiting for reply"""
         if msg.id == NETSIO_DATA_BLOCK:
             self.handle_host_msg(msg) # send to devices
-            debug_print("< ATD CALL +{:.0f} {:02X}".format(msg.elapsed() * 1.e6, ATDEV_EMPTY_SYNC))
+            debug_print("< ATD RESPONSE {} +{:.0f}".format(ATDEV_EMPTY_SYNC, msg.elapsed() * 1.e6))
             return ATDEV_EMPTY_SYNC # return no ACK byte
         # handle sync request
-        msg.arg += bytes( (self.sync.set_request(msg.id),) ) # append request sn prior sending
+        msg.arg.append(self.sync.set_request(msg.id)) # append request sn prior sending
         clear_queue(self.host_queue)
         if not self.device_manager.connected():
             # shortcut: no device is connected, set response now
@@ -542,7 +571,7 @@ class NetSIOHub:
         else:
             self.handle_host_msg(msg) # send to devices
         result = self.sync.get_response(self.device_manager.sync_tmout, ATDEV_EMPTY_SYNC)
-        debug_print("< ATD CALL +{:.0f} {:02X}".format(msg.elapsed() * 1.e6, result))
+        debug_print("< ATD RESPONSE {} +{:.0f}".format(result, msg.elapsed() * 1.e6))
         return result
 
     def handle_device_msg(self, msg:NetSIOMsg, device:NetSIOClient):
