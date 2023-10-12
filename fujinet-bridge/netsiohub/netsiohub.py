@@ -56,16 +56,100 @@ class NetInThread(threading.Thread):
         if self.server is not None:
             self.server.shutdown()
 
+class NetInBuffer:
+    """Byte buffer with auto flush on size or age"""
+
+    BUFFER_SIZE = 130 # 130 bytes
+    BUFFER_MAX_AGE = 0.005 # 5 ms
+
+    def __init__(self, server):
+        self.server = server
+        self.data = bytearray()
+        self.lock = threading.RLock()
+        self.monitor_condition = threading.Condition()
+        self.monitor_event = threading.Event()
+        self.tmout = 0.0
+        threading.Thread(target=self.buffer_monitor).start()
+
+    def buffer_monitor(self):
+        debug_print("buffer_monitor started")
+        self.monitor_condition.acquire()
+        while True:
+            #debug_print("buffer_monitor long waiting")
+            self.monitor_condition.wait()
+            tmout = self.tmout
+            #debug_print("buffer_monitor tmout:", tmout)
+            self.monitor_event.set()
+            if tmout is None:
+                break
+            while True:
+                #debug_print("buffer_monitor timeout waiting")
+                reset = self.monitor_condition.wait(tmout)
+                if not reset:
+                    #debug_print("buffer_monitor expired")
+                    self.flush()
+                    break
+                tmout = self.tmout
+                #debug_print("buffer_monitor new tmout:", tmout)
+                self.monitor_event.set()
+                if tmout is None:
+                    break
+            if tmout is None:
+                break
+        self.monitor_condition.release()
+        debug_print("buffer_monitor stopped")
+
+    def set_delay(self, t):
+        with self.monitor_condition:
+            #debug_print("buffer_monitor notify")
+            self.tmout = t
+            self.monitor_event.clear()
+            self.monitor_condition.notify()
+            #debug_print("buffer_monitor notification sent")
+        self.monitor_event.wait()
+        #debug_print("buffer_monitor delay applied")
+
+    def stop(self):
+        self.set_delay(None)
+
+    def extend(self, b:bytearray):
+        with self.lock:
+            self.data.extend(b)
+            l = len(self.data)
+        if l >= self.BUFFER_SIZE:
+            self.flush()
+        else:
+            self.set_delay(self.BUFFER_MAX_AGE)
+
+    def flush(self):
+        msg = None
+        with self.lock:
+            if len(self.data):
+                if len(self.data) > 1:
+                    msg = NetSIOMsg(NETSIO_DATA_BLOCK, self.data)
+                else:
+                    msg = NetSIOMsg(NETSIO_DATA_BYTE, self.data)
+                self.data = bytearray()
+        if msg:
+            debug_print("< NET FLUSH", msg)
+            self.server.hub.handle_device_msg(msg, None)
 
 class NetSIOServer(socketserver.UDPServer):
     """NetSIO UDP Server"""
+
     def __init__(self, hub:NetSIOHub, port:int):
         self.hub:NetSIOHub = hub
         self.clients_lock = threading.Lock()
         self.clients = {}
         self.last_recv = timer()
         self.sn = 0 # TODO test only
+        # single bytes buffering
+        self.inbuffer = NetInBuffer(self)
         super().__init__(('', port), NetSIOHandler)
+
+    def shutdown(self):
+        self.inbuffer.stop()
+        super().shutdown()
 
     def register_client(self, address, sock):
         with self.clients_lock:
@@ -77,12 +161,12 @@ class NetSIOServer(socketserver.UDPServer):
                 client = self.clients[address]
                 client.sock = sock
                 client.expire_time = ALIVE_EXPIRATION + time.time()
-                info_print("Device reconnected: {}  Devices: {}".format(addtos(address), len(self.clients)))
+                info_print("Device reconnected: {}  Devices: {}".format(adtos(address), len(self.clients)))
         self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
-        # give the client some initial credit
-        msg = NetSIOMsg(NETSIO_CREDIT, 16) # TODO initial credit
-        client.sock.sendto(struct.pack('B', msg.id) + msg.arg, address)
-        debug_print("> NET {} {}".format(adtos(address), msg))
+        # give the client initial credit
+        msg = NetSIOMsg(NETSIO_CREDIT, 4) # TODO initial credit
+        client.credit = 4
+        self.send_to_client(client, msg)
         return client
 
     def deregister_client(self, address, expired=False):
@@ -136,6 +220,18 @@ class NetSIOServer(socketserver.UDPServer):
         with self.clients_lock:
             return len(self.clients) > 0
 
+    def credit_clients(self):
+        # TODO send credit if there is room in a queue
+        with self.clients_lock:
+            clients = self.clients.values()
+        for c in clients:
+            credit = 4 - self.hub.host_queue.qsize()
+            if credit >= 2:
+                msg = NetSIOMsg(NETSIO_CREDIT, credit)
+                if c.credit == 0:
+                    c.credit = 4
+                    self.send_to_client(c, msg)
+
 class NetSIOHandler(socketserver.BaseRequestHandler):
     """NetSIO received packet handler"""
 
@@ -144,7 +240,7 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
         msg = NetSIOMsg(data[0], data[1:])
         ca = self.client_address
 
-        debug_print("< NET +{:.0f} {} {}".format(
+        debug_print("< NET IN +{:.0f} {} {}".format(
             (timer()-self.server.last_recv)*1.e6,
             adtos(ca), msg))
         self.server.last_recv = timer()
@@ -153,10 +249,17 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
             # events from connected/registered devices
             client = self.server.get_client(self.client_address)
             if client is not None:
-                if client.expire_time > time.time():
-                    self.server.hub.handle_device_msg(msg, client)
-                else:
+                if client.expire_time < time.time():
+                    # expired connection
                     self.server.deregister_client(client.address, expired=True)
+                else:
+                    if msg.id == NETSIO_DATA_BYTE:
+                        # buffering
+                        self.server.inbuffer.extend(msg.arg)
+                    else:
+                        # send buffer firts, if any
+                        self.server.inbuffer.flush()
+                        self.server.hub.handle_device_msg(msg, client)
         else:
             # connection management
             if msg.id == NETSIO_DEVICE_DISCONNECT:
@@ -177,6 +280,16 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
                 if client is not None:
                     client.expire_time = ALIVE_EXPIRATION + time.time()
                     self.server.send_to_client(client, NetSIOMsg(NETSIO_ALIVE_RESPONSE))
+            elif msg.id == NETSIO_CREDIT:
+                client = self.server.get_client(self.client_address)
+                if client is not None and len(msg.arg):
+                    # TODO send credit if there is room in a queue
+                    if self.server.hub.host_queue.qsize() < 2:
+                        msg.arg[0] = 4
+                        client.credit = 4
+                        self.server.send_to_client(client, msg)
+                    client.credit = msg.arg[0]
+
 
 class NetOutThread(threading.Thread):
     """Thread to send "messages" to connected netsio devices"""
@@ -252,6 +365,8 @@ class NetSIOManager(DeviceManager):
         """Return true if any device is connected"""
         return self.netin_thread.server.connected()
 
+    def credit_clients(self):
+        return self.netin_thread.server.credit_clients()
 
 class AtDevManager(HostManager):
     """Altirra custom device manager"""
@@ -434,6 +549,9 @@ class AtDevThread(threading.Thread):
             if self.stop_flag.is_set():
                 break
 
+            if self.queue.qsize() < 2:
+                self.atdev_handler.hub.credit_clients()
+
             if msg.id in (NETSIO_DATA_BYTE, NETSIO_DATA_BLOCK):
                 # send byte and send buffer makes POKEY busy and
                 # we have to receive confirmation when it is ready again
@@ -614,6 +732,8 @@ class NetSIOHub:
 
         self.host_queue.put(msg)
 
+    def credit_clients(self):
+        self.device_manager.credit_clients()
 
 # workaround for calling parse_args() twice
 def get_arg_parser(full=True):

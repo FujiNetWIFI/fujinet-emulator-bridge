@@ -24,23 +24,23 @@ class SerInThread(threading.Thread):
         def buffer_age():
             return timer() - buffer_timestamp
         
-        def buffer_append(_b:bytes):
+        def buffer_extend(_b:bytes):
             ts = timer() #if len(buffer) == 0 else buffer_timestamp
             buffer.extend(_b)
             return ts
 
-        BUFFER_SIZE = 130 #65 bytes
+        BUFFER_SIZE = 130 # 130 bytes
         BUFFER_MAX_AGE = 0.015 # 15 ms
 
         proceed_save = self.get_proceed()
 
         debug_print("SerInThread started")
         buffer = bytearray()
-        buffer_timestamp = 0.0
+        buffer_timestamp = timer()
         msg = None
         errors = 0
 
-        # read data + TODO poll proceed
+        # read data + poll proceed
         while not self.stop_flag.is_set():
             # anything SerOutThread needs to do?
             if not self.manager.allow_read.is_set():
@@ -86,10 +86,10 @@ class SerInThread(threading.Thread):
                     self.manager.sync_flag.clear()
                     debug_print("= SER SYNC OFF")
                     # keep the rest in buffer
-                    buffer_timestamp = buffer_append(d[1:])
+                    buffer_timestamp = buffer_extend(d[1:])
                 else:
                     # place data into buffer
-                    buffer_timestamp = buffer_append(d)
+                    buffer_timestamp = buffer_extend(d)
                     # send buffer when full
                     if len(buffer) >= BUFFER_SIZE:
                         msg = NetSIOMsg(NETSIO_DATA_BLOCK, buffer)
@@ -106,8 +106,8 @@ class SerInThread(threading.Thread):
                     buffer = bytearray() # reset buffer
             # anything to send?
             if msg:
+                debug_print("< SER", msg)
                 self.hub.handle_device_msg(msg, None)
-                debug_print("< SER [{}] {}".format(1+len(msg.arg), msg))
                 msg = None
         debug_print("SerInThread stopped")
 

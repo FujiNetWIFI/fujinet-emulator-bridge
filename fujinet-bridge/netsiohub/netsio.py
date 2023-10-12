@@ -174,6 +174,10 @@ class DeviceManager():
         """Return true if any device is connected"""
         return True
 
+    def credit_clients(self):
+        """Give credit to connected devices to send more messages"""
+        pass
+
 class HostManager():
     """Manages communication with Atari host / Atari emulator"""
     def __init__(self):
