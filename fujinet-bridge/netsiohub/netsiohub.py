@@ -87,6 +87,7 @@ class NetInBuffer:
                 reset = self.monitor_condition.wait(tmout)
                 if not reset:
                     #debug_print("buffer_monitor expired")
+                    self.monitor_event.set() # in case set_delay is waiting when we timed-out
                     self.flush()
                     break
                 tmout = self.tmout
@@ -162,11 +163,12 @@ class NetSIOServer(socketserver.UDPServer):
                 client.sock = sock
                 client.expire_time = ALIVE_EXPIRATION + time.time()
                 info_print("Device reconnected: {}  Devices: {}".format(adtos(address), len(self.clients)))
-        self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
         # give the client initial credit
-        msg = NetSIOMsg(NETSIO_CREDIT, 4) # TODO initial credit
-        client.credit = 4
+        msg = NetSIOMsg(NETSIO_CREDIT_UPDATE, 4) # initial credit
         self.send_to_client(client, msg)
+        client.credit = 4
+        # notify hub
+        self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
         return client
 
     def deregister_client(self, address, expired=False):
@@ -221,16 +223,16 @@ class NetSIOServer(socketserver.UDPServer):
             return len(self.clients) > 0
 
     def credit_clients(self):
-        # TODO send credit if there is room in a queue
-        with self.clients_lock:
-            clients = self.clients.values()
-        for c in clients:
-            credit = 4 - self.hub.host_queue.qsize()
-            if credit >= 2:
-                msg = NetSIOMsg(NETSIO_CREDIT, credit)
+        # send credits to waiting clients if there is a room in a queue
+        credit = 4 - self.hub.host_queue.qsize()
+        if credit >= 2:
+            with self.clients_lock:
+                clients = self.clients.values()
+            msg = NetSIOMsg(NETSIO_CREDIT_UPDATE, credit)
+            for c in clients:
                 if c.credit == 0:
-                    c.credit = 4
                     self.send_to_client(c, msg)
+                    c.credit = credit
 
 class NetSIOHandler(socketserver.BaseRequestHandler):
     """NetSIO received packet handler"""
@@ -280,15 +282,16 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
                 if client is not None:
                     client.expire_time = ALIVE_EXPIRATION + time.time()
                     self.server.send_to_client(client, NetSIOMsg(NETSIO_ALIVE_RESPONSE))
-            elif msg.id == NETSIO_CREDIT:
+            elif msg.id == NETSIO_CREDIT_STATUS:
                 client = self.server.get_client(self.client_address)
                 if client is not None and len(msg.arg):
-                    # TODO send credit if there is room in a queue
-                    if self.server.hub.host_queue.qsize() < 2:
-                        msg.arg[0] = 4
-                        client.credit = 4
-                        self.server.send_to_client(client, msg)
                     client.credit = msg.arg[0]
+                    # send credit now if there is a room in a queue
+                    credit = 4 - self.server.hub.host_queue.qsize()
+                    if credit >= 2 and client.credit == 0:
+                        msg = NetSIOMsg(NETSIO_CREDIT_UPDATE, credit)
+                        client.credit = credit
+                        self.server.send_to_client(client, msg)
 
 
 class NetOutThread(threading.Thread):
