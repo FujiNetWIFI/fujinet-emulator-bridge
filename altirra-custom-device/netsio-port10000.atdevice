@@ -8,7 +8,7 @@ option "debug": false; // not for 3.90
 
 option "network": 
 {
-    port: 9996
+    port: 10000
 };
 
 Segment txbuffer: 
