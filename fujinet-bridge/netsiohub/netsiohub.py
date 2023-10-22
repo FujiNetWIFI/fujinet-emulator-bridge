@@ -31,7 +31,26 @@ class NetSIOClient:
         self.expire_time = time.time() + ALIVE_EXPIRATION
         # self.cpb = 94 # default 94 CPB (19200 baud)
         self.credit = 0
+        self.lock = threading.Lock()
 
+    def expired(self, t=None):
+        if t is None:
+            t = time.time()
+        with self.lock:
+            expired = True if self.expire_time < t else False
+        return expired
+
+    def refresh(self):
+        with self.lock:
+            self.expire_time = time.time() + ALIVE_EXPIRATION
+
+    def update_credit(self, credit, threshold=0):
+        update = False
+        with self.lock:
+            if self.credit <= threshold:
+                self.credit = credit
+                update = True
+        return update
 
 class NetInThread(threading.Thread):
     """Thread to handle incoming network traffic"""
@@ -161,12 +180,11 @@ class NetSIOServer(socketserver.UDPServer):
             else:
                 client = self.clients[address]
                 client.sock = sock
-                client.expire_time = ALIVE_EXPIRATION + time.time()
+                client.refresh()
                 info_print("Device reconnected: {}  Devices: {}".format(adtos(address), len(self.clients)))
         # give the client initial credit
-        msg = NetSIOMsg(NETSIO_CREDIT_UPDATE, 4) # initial credit
-        self.send_to_client(client, msg)
-        client.credit = 4
+        client.update_credit(4) # initial credit
+        self.send_to_client(client, NetSIOMsg(NETSIO_CREDIT_UPDATE, 4))
         # notify hub
         self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
         return client
@@ -202,7 +220,8 @@ class NetSIOServer(socketserver.UDPServer):
         msg.arg.append(self.sn)
         self.sn = (1 + self.sn) & 255
         for c in clients:
-            if c.expire_time <= t:
+            # skip sending to expired clients
+            if c.expired(t):
                 expire = True
                 continue
             self.send_to_client(c, msg)
@@ -213,7 +232,7 @@ class NetSIOServer(socketserver.UDPServer):
     def expire_clients(self):
         t = time.time()
         with self.clients_lock:
-            expired = [c for c in self.clients.values() if c.expire_time <= t]
+            expired = [c for c in self.clients.values() if c.expired(t)]
         for c in expired:
             self.deregister_client(c.address, expired=True)
         
@@ -230,9 +249,9 @@ class NetSIOServer(socketserver.UDPServer):
                 clients = self.clients.values()
             msg = NetSIOMsg(NETSIO_CREDIT_UPDATE, credit)
             for c in clients:
-                if c.credit == 0:
+                if c.update_credit(credit):
                     self.send_to_client(c, msg)
-                    c.credit = credit
+
 
 class NetSIOHandler(socketserver.BaseRequestHandler):
     """NetSIO received packet handler"""
@@ -251,10 +270,12 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
             # events from connected/registered devices
             client = self.server.get_client(self.client_address)
             if client is not None:
-                if client.expire_time < time.time():
+                if client.expired():
                     # expired connection
                     self.server.deregister_client(client.address, expired=True)
                 else:
+                    # update expiration
+                    client.refresh()
                     if msg.id == NETSIO_DATA_BYTE:
                         # buffering
                         self.server.inbuffer.extend(msg.arg)
@@ -280,18 +301,17 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
                 # alive, send alive response (only if connected/registered)
                 client = self.server.get_client(self.client_address)
                 if client is not None:
-                    client.expire_time = ALIVE_EXPIRATION + time.time()
+                    client.refresh()
                     self.server.send_to_client(client, NetSIOMsg(NETSIO_ALIVE_RESPONSE))
             elif msg.id == NETSIO_CREDIT_STATUS:
                 client = self.server.get_client(self.client_address)
                 if client is not None and len(msg.arg):
-                    client.credit = msg.arg[0]
-                    # send credit now if there is a room in a queue
+                    # update clinet's credit
+                    client.update_credit(msg.arg[0], 10) # 10 to force credit update
+                    # send new credit immediately if there is a room in a queue
                     credit = 4 - self.server.hub.host_queue.qsize()
-                    if credit >= 2 and client.credit == 0:
-                        msg = NetSIOMsg(NETSIO_CREDIT_UPDATE, credit)
-                        client.credit = credit
-                        self.server.send_to_client(client, msg)
+                    if credit >= 2 and client.update_credit(credit):
+                        self.server.send_to_client(client, NetSIOMsg(NETSIO_CREDIT_UPDATE, credit))
 
 
 class NetOutThread(threading.Thread):
