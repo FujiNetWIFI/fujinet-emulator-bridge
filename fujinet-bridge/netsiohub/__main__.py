@@ -1,5 +1,5 @@
 import sys
-from netsiohub import netsiohub
+from netsiohub import hub
 
 if __name__ == '__main__':
-    sys.exit(netsiohub.main())
+    sys.exit(hub.main())
