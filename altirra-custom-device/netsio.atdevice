@@ -3,7 +3,7 @@
 // Requires the netsio-server.py script to handle UDP communications on port
 // 9996
 
-option "name": "NetSIO - SIO over network v0.13";
+option "name": "NetSIO - SIO over network v0.14";
 option "debug": false; // not for 3.90
 
 option "network": 
@@ -37,7 +37,9 @@ int in_cpb;
 int out_cpb;
 int sync_write_size;
 int write_size_hint;
+int pclink_write_size;
 int processing_message;
+int processing_pclink_parblk;
 
 Thread command_thread;
 Thread motor_thread;
@@ -130,9 +132,16 @@ function void debug_command_frame()
         else if(cmd == $57) {Debug.log_int("Network WRITE ", aux); write_size_hint = 1+aux;}
         else if(cmd == $4F) {Debug.log_int("Network OPEN ", aux); write_size_hint = 257;}
         else if(cmd == $4D) Debug.log_int("Network MODE ", aux);
+
         else if(cmd == $43) Debug.log("Network CLOSE");
         else if(cmd == $50) Debug.log("Network Parse JSON ");
         else if(cmd == $51) {Debug.log("Network Query JSON "); write_size_hint = 257;}
+        else if(cmd == $20) {Debug.log("Network RENAME"); write_size_hint = 257;}
+        else if(cmd == $21) {Debug.log("Network DELETE"); write_size_hint = 257;}
+        else if(cmd == $23) {Debug.log("Network LOCK"); write_size_hint = 257;}
+        else if(cmd == $24) {Debug.log("Network UNLOCK"); write_size_hint = 257;}
+        else if(cmd == $2A) {Debug.log("Network MKDIR"); write_size_hint = 257;}
+        else if(cmd == $2B) {Debug.log("Network RMDIR"); write_size_hint = 257;}
         else if(cmd == $2C) {Debug.log("Network CHDIR"); write_size_hint = 257;}
         else if(cmd == $30) Debug.log("Network PWD");
         else if(cmd == $FC) Debug.log_int("Network SET Channel Mode ", aux2);
@@ -175,11 +184,54 @@ function void debug_command_frame()
     {
         Debug.log_int("Poll3 CMD ", cmd);
     }
+    else if (devID == $6F)
+    {
+        if (cmd == $50) {
+            Debug.log_int("PCLink PARBLK ", aux1);
+            write_size_hint = aux1 + 1;
+            processing_pclink_parblk = 1;
+        }
+        else if (cmd == $52) {
+            Debug.log_int("PCLink EXEC, whint=", pclink_write_size);
+            write_size_hint = pclink_write_size;
+        }
+        else if(cmd == $53) Debug.log("PCLink STATUS");
+    }
     else
     {
         Debug.log_int("Device  ", devID);
         Debug.log_int("Command ", cmd);
     }
+}
+
+function void debug_pclink_parblk()
+{
+    int fno = rxbuffer.read_byte(0);
+    int handle = rxbuffer.read_byte(1);
+    int blk_size = rxbuffer.read_byte(2) + 256 * rxbuffer.read_byte(3);
+    int faux = blk_size + 65536 * rxbuffer.read_byte(4);
+    processing_pclink_parblk = 0;
+    pclink_write_size = 0;
+    if (fno == $00) Debug.log_int("  FREAD ", blk_size);
+    else if (fno == $01) {Debug.log_int("  FWRITE ", blk_size); pclink_write_size = blk_size + 1;}
+    else if (fno == $02) Debug.log_int("  FSEEK ", faux);
+    else if (fno == $03) Debug.log("  FTELL");
+    else if (fno == $04) Debug.log("  FLEN");
+    else if (fno == $06) Debug.log("  FNEXT");
+    else if (fno == $07) Debug.log("  FCLOSE");
+    else if (fno == $08) Debug.log("  INIT");
+    else if (fno == $09) Debug.log("  FOPEN");
+    else if (fno == $0A) Debug.log("  FFIRST");
+    else if (fno == $0B) Debug.log("  RENAME");
+    else if (fno == $0C) Debug.log("  REMOVE");
+    else if (fno == $0D) Debug.log("  CHMOD");
+    else if (fno == $0E) Debug.log("  MKDIR");
+    else if (fno == $0F) Debug.log("  RMDIR");
+    else if (fno == $10) Debug.log("  CHDIR");
+    else if (fno == $11) Debug.log("  GETCWD");
+    else if (fno == $13) Debug.log("  DFREE");
+    else if (fno == $14) Debug.log("  CHVOL");
+    else Debug.log_int("  fno=", fno);
 }
 
 function void motor_thread_handler() 
@@ -299,8 +351,13 @@ function void buffer_to_server()
         [debug] Debug.log("> Data block");
         [debug] Debug.log_int("> buffer_to_server started, length: ", rxbuffer_len);
         // command frame debugging
-        if ($sio.command_asserted()) {
+        if ($sio.command_asserted()) 
+        {
             debug_command_frame();
+        }
+        else if (processing_pclink_parblk) 
+        {
+            debug_pclink_parblk();
         }
 
         processing_message = $02;
@@ -487,7 +544,7 @@ event "network_interrupt": function
 event "init": function 
 {
     $sio.enable_raw(true);
-    Debug.log("NetSIO v0.13");
+    Debug.log("NetSIO v0.14");
     [debug] Debug.log("DEBUG enabled");
 };
 
@@ -501,6 +558,8 @@ event "cold_reset": function
 
     sync_write_size = 0;
     processing_message = 0;
+
+    processing_pclink_parblk = 0;
 
     $sio.enable_raw(true);
     motor_thread.run(motor_thread_handler);
