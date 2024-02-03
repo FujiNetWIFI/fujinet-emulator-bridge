@@ -267,16 +267,16 @@ function void byte_to_computer()
 
 function void buffer_to_computer()
 {
-    if ($sio.command_asserted()) {
-        Debug.log_int("Buffer to computer while command is asserted! Bytes discarded: ", txbuffer_len);
-        $network.post_message($100, 0); // ready
-        return;
-    }
-
     [debug] Debug.log_int("< buffer_to_computer started, length: ", txbuffer_len);
     // send bytes from region to POKEY
     int i = 0;
     loop {
+        if ($sio.command_asserted()) {
+            Debug.log_int("Buffer to computer while command is asserted! Bytes discarded: ", txbuffer_len - i);
+            $network.post_message($100, 0); // ready
+            return;
+        }
+
         [debug] Debug.log_int("<   to computer ", txbuffer.read_byte(i));
         Thread.sleep(3); // be nice to Atari
         $sio.send_raw_byte(txbuffer.read_byte(i), in_cpb);
@@ -294,21 +294,21 @@ function void buffer_to_computer()
 function void handle_sync_response()
 {
     int ack;
-    if (sync_response >=0) {
+    if (sync_response & $FF == $81) { // SYNC_ACK
         if (sio_send_thread.is_running()) {
             Debug.log("Sync ACK while still sending to computer! Cancelling send.");
             // TODO wait/join or cancel/interrupt ? - simulate vs improve communication
             sio_send_thread.interrupt();
         }
-        ack = sync_response & $FF; // ACK/NAK byte
-        sync_write_size = sync_response >> 8; // next sync after this amount of bytes written
-        [debug] Debug.log_int("Sync ACK: ", ack);
-        [debug] Debug.log_int("Sync write size: ", sync_write_size);
+        ack = (sync_response >> 8) & $FF; // ACK/NAK byte
+        sync_write_size = sync_response >> 16; // next sync after this amount of bytes written
+        [debug] Debug.log_int("  Sync ACK: ", ack);
+        [debug] Debug.log_int("  Sync write size: ", sync_write_size);
         // ACK/NAK byte to computer
         txbyte = ack;
         byte_to_computer();
     } else {
-        [debug] Debug.log("EMPTY ACK");
+        [debug] Debug.log("  EMPTY ACK");
     }
 }
 
@@ -325,7 +325,7 @@ function void sync_ack_on_command_frame()
     // if no sync write size was given, use write size hint, if any
     if (sync_write_size == 0 && write_size_hint != 0) {
         sync_write_size = write_size_hint;
-        [debug] Debug.log_int("Write size hint: ", write_size_hint);
+        [debug] Debug.log_int("  Write size hint: ", write_size_hint);
     }
 }
 
@@ -474,8 +474,10 @@ function void rxbyte_thread_handler()
 
 event "network_interrupt": function 
 {
-    int evt = $aux1;
-    int arg = $aux2;
+    int evt      = $aux1 & $1FF;        // 9  bits for event id
+    int evt_arg  = ($aux1 >> 9) & $7F;  // 7  bits for compact event arg
+    int evt_data = $aux1 >> 16;         // 16 bits for compact event data
+    int arg      = $aux2;               // 32 bits full arg
 
     if (processing_message) {
         // $network.send_message() is still waiting for return value from server
@@ -486,14 +488,25 @@ event "network_interrupt": function
     }
 
     if (evt == $01) { // data byte
-        [debug] Debug.log("< Data byte");
         txbyte = arg;
+        [debug] Debug.log_int("< Data byte ", txbyte);
         sio_send_thread.run(byte_to_computer); // thread is not started in 3.90
         // Thread.sleep(400); // yield workaround for 3.90
     }
     else if (evt == $101) { // data block (txbuffer segment) push
-        [debug] Debug.log("< Data block");
-        txbuffer_len = arg;
+        if (evt_arg) {
+            // fill in txbuffer, up to 6 bytes in compact data block
+            txbuffer.write_byte(0,  evt_data & $FF);
+            txbuffer.write_byte(1,  evt_data >> 8);
+            txbuffer.write_byte(2,  arg        & $FF);
+            txbuffer.write_byte(3, (arg >> 8)  & $FF);
+            txbuffer.write_byte(4, (arg >> 16) & $FF);
+            txbuffer.write_byte(5,  arg >> 24);
+            txbuffer_len = evt_arg;
+        } else {
+            txbuffer_len = arg;
+        }
+        [debug] Debug.log_int("< Data block ", txbuffer_len);
         sio_send_thread.run(buffer_to_computer); // thread is not started in 3.90
         // Thread.sleep(400); // yield workaround for 3.90
     }
@@ -568,7 +581,7 @@ event "cold_reset": function
     Debug.log("NetSIO Cold Reset");
     // In some cases Altirra sends Cold reset message to deviceserver without cold-resetting emulated Atari
     // Do not use handle_coldreset handler, rather handle 0xFF message in handle_script_post
-    $network.post_message($FF, 0);
+    $network.post_message($FF, 0); // cold reset
 };
 
 event "warm_reset": function 

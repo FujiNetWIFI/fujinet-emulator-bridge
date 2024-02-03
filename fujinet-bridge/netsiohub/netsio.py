@@ -45,8 +45,7 @@ ATDEV_READY             = 0x100
 ATDEV_TRANSMIT_BUFFER   = 0x101
 ATDEV_DEBUG_MESSAGE     = 0x102
 ATDEV_DEBUG_NOP         = 0x103
-ATDEV_EMPTY_SYNC        = -1 # any value less than zero
-
+ATDEV_EMPTY_SYNC        = 0x000
 
 # local TCP port for Altirra custom device communication
 NETSIO_ATDEV_PORT   = 9996
@@ -136,6 +135,9 @@ class NetSIOMsg:
 
     def elapsed(self):
         return timer() - self.time
+
+    def elapsed_us(self):
+        return (timer() - self.time) * 1e6
 
     def arg_str(self):
         return " ".join(["{:02X}".format(b) for b in self.arg])

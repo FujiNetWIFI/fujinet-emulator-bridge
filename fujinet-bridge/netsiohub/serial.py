@@ -185,9 +185,7 @@ class SerOutThread(threading.Thread):
                 self.manager.sync_flag.set()
                 debug_print("= SER SYNC ON")
             debug_print("> SER OUT +{:.0f} [{}] {}".format(
-                        msg.elapsed() * 1.e6,
-                        len(msg.arg), 
-                        msg.arg_str()))
+                        msg.elapsed_us(), len(msg.arg), msg.arg_str()))
         elif msg.id == NETSIO_COMMAND_ON:
             #self.pause_serial_input()
             #self.serial.reset_input_buffer()

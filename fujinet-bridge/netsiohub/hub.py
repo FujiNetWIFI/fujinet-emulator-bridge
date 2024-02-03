@@ -468,6 +468,11 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
         elif event == ATDEV_DEBUG_NOP:
             msg = NetSIOMsg(event)
 
+        if msg is None:
+            debug_print("> ATD {:02X} {:02X} ++{} -> {}".format(event, arg, timestamp-self.emu_ts))
+            info_print("Invalid ATD")
+            return
+
         msg.time = ts
         debug_print("> ATD {:02X} {:02X} ++{} -> {}".format(event, arg, timestamp-self.emu_ts, msg))
         if event == ATDEV_READY:
@@ -493,11 +498,13 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
             msg = NetSIOMsg(event, arg)
             local = True
             result = arg
-        if not msg:
+
+        if msg is None:
             debug_print("> ATD CALL {:02X} {:02X} ++{}".format(event, arg, timestamp-self.emu_ts))
             info_print("Invalid ATD CALL")
-            debug_print("< ATD RESPONSE", result)
+            debug_print("< ATD RESPONSE {}".format(result))
             return result
+
         msg.time = ts
         debug_print("> ATD CALL {:02X} {:02X} ++{} -> {}".format(event, arg, timestamp-self.emu_ts, msg))
         if event == NETSIO_DATA_BLOCK:
@@ -507,6 +514,7 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
             debug_print("  ATD ->", msg)
         if not local:
             result = self.hub.handle_host_msg_sync(msg)
+        debug_print("< ATD RESPONSE {} = 0x{:02X} +{:.0f}".format(result, result, msg.elapsed_us()))
         return result
 
     def handle_coldreset(self, timestamp):
@@ -553,10 +561,10 @@ class AtDevThread(threading.Thread):
         # msg = NetSIOMsg(ATDEV_DEBUG_MESSAGE, b"Hi")
         # self.atdev_handler.req_write_seg_mem(2, 0, msg.arg)
         # msglen = len(msg.arg)
-        # debug_print("< ATD +{:.0f} MSG [{}] {}".format(msg.elapsed() * 1.e6, msglen, msg.arg_str()))
+        # debug_print("< ATD +{:.0f} MSG [{}] {}".format(msg.elapsed_us(), msglen, msg.arg_str()))
         # # instruct netsio.atdevice to send rxbuffer to emulated Atari
         # self.atdev_handler.req_interrupt(ATDEV_DEBUG_MESSAGE, msglen)
-        # debug_print("< ATD +{:.0f} {:02X} {:02X}".format(msg.elapsed() * 1.e6, ATDEV_DEBUG_MESSAGE, msglen))
+        # debug_print("< ATD +{:.0f} {:02X} {:02X}".format(msg.elapsed_us(), ATDEV_DEBUG_MESSAGE, msglen))
 
         while True:
             msg = self.queue.get()
@@ -583,16 +591,35 @@ class AtDevThread(threading.Thread):
 
             if msg.id == NETSIO_DATA_BLOCK:
                 rxsize = len(msg.arg)
-                # place serial data to netsio.atdevice rxbuffer i.e. segment 0
-                debug_print("< ATD WRITE_BUFFER {} <- {}".format(rxsize, msg))
-                self.atdev_handler.req_write_seg_mem(0, 0, msg.arg)
-                # instruct netsio.atdevice to send rxbuffer to emulated Atari
-                debug_print("< ATD {:02X}:TRANSMIT_BUFFER {} +{:.0f}".format(
-                    ATDEV_TRANSMIT_BUFFER,
-                    rxsize,
-                    msg.elapsed() * 1.e6)
-                )
-                self.atdev_handler.req_interrupt(ATDEV_TRANSMIT_BUFFER, rxsize)
+                if rxsize <= 6:
+                    # prepare compact short data block
+                    aux1 = ATDEV_TRANSMIT_BUFFER | (rxsize << 9)
+                    aux2 = 0
+                    # place firts 2 bytes into aux1
+                    if rxsize:
+                        aux1 |= (msg.arg[0] << 16)
+                    if rxsize > 1:
+                        aux1 |= (msg.arg[1] << 24)
+                    # place next 4 bytes into aux2
+                    if rxsize > 2:
+                        aux2 = msg.arg[2]
+                    if rxsize > 3:
+                        aux2 |= (msg.arg[3] << 8)
+                    if rxsize > 4:
+                        aux2 |= (msg.arg[4] << 16)
+                    if rxsize > 5:
+                        aux2 |= (msg.arg[5] << 24)
+                    debug_print("< ATD {:08X}:WRITE_&_TRANSMIT_BUFFER 0x{:08X} +{:.0f} <- {}".format(
+                        aux1, aux2, msg.elapsed_us(), msg))
+                    self.atdev_handler.req_interrupt(aux1, aux2)
+                else:
+                    # place serial data to netsio.atdevice rxbuffer i.e. segment 0
+                    debug_print("< ATD WRITE_BUFFER {} <- {}".format(rxsize, msg))
+                    self.atdev_handler.req_write_seg_mem(0, 0, msg.arg)
+                    # instruct netsio.atdevice to send rxbuffer to emulated Atari
+                    debug_print("< ATD {:02X}:TRANSMIT_BUFFER {} +{:.0f}".format(
+                        ATDEV_TRANSMIT_BUFFER, rxsize, msg.elapsed_us()))
+                    self.atdev_handler.req_interrupt(ATDEV_TRANSMIT_BUFFER, rxsize)
             elif msg.id == NETSIO_DATA_BYTE:
                 # serial byte from remote device
                 debug_print("< ATD {}".format(msg))
@@ -701,7 +728,6 @@ class NetSIOHub:
         """handle message from Atari host emulator, emulation is paused, emulator is waiting for reply"""
         if msg.id == NETSIO_DATA_BLOCK:
             self.handle_host_msg(msg) # send to devices
-            debug_print("< ATD RESPONSE {} +{:.0f}".format(ATDEV_EMPTY_SYNC, msg.elapsed() * 1.e6))
             return ATDEV_EMPTY_SYNC # return no ACK byte
         # handle sync request
         msg.arg.append(self.sync.set_request(msg.id)) # append request sn prior sending
@@ -712,7 +738,6 @@ class NetSIOHub:
         else:
             self.handle_host_msg(msg) # send to devices
         result = self.sync.get_response(self.device_manager.sync_tmout, ATDEV_EMPTY_SYNC)
-        debug_print("< ATD RESPONSE {} +{:.0f}".format(result, msg.elapsed() * 1.e6))
         return result
 
     def handle_device_msg(self, msg:NetSIOMsg, device:NetSIOClient):
@@ -732,7 +757,8 @@ class NetSIOHub:
                 else:
                     # response with ACK/NAK byte and sync write size
                     self.host_handler.clear_rtr()
-                    self.sync.set_response(msg.arg[2] | (msg.arg[3] << 8) | (msg.arg[4] << 16), sn)
+                    self.sync.set_response(NETSIO_SYNC_RESPONSE |
+                                           msg.arg[2] << 8 | (msg.arg[3] << 16) | (msg.arg[4] << 24), sn)
                 return
             elif msg.id in (NETSIO_DATA_BYTE, NETSIO_DATA_BLOCK):
                 debug_print("discarding", msg)
