@@ -436,6 +436,8 @@ class AtDevHandler(deviceserver.DeviceTCPHandler):
 
         try:
             super().handle()
+        except ConnectionResetError:
+            info_print("Host reset connection")
         finally:
             self.hub.host_disconnected()
             self.atdev_thread.stop()
