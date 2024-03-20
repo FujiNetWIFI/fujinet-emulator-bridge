@@ -29,6 +29,8 @@ At the time of writing, no Atari emulator can speak directly NetSIO protocol. Th
 | [Ping response](#ping-response)             | 0xC3  |   |
 | [Alive request](#alive-request)             | 0xC4  |   |
 | [Alive response](#alive-response)           | 0xC5  |   |
+| [Credit status](#credit-status)             | 0xC6  |   |
+| [Credit update](#credit-update)             | 0xC7  |   |
 | **Notifications**                           |       |   |
 | [Warm reset](#warm-reset)                   | 0xFE  |   |
 | [Cold reset](#cold-reset)                   | 0xFF  |   |
@@ -273,6 +275,24 @@ Allows the device to test the availability of NetSIO hub. Similar to ICMP ping, 
 | Parameters | none |
 
 The device informs the hub, that the device is still connected and interested into communication. The device must send the `Alive request` in regular intervals (every TBD). In turn, the hub must send `Alive response` to the device to let the device know the connection is still established.
+
+### Credit status
+
+### Credit update
+
+| Credit status |    |
+| -- | -- |
+| ID | 0xC6 |
+| Direction | Device -> hub |
+| Parameters | credit: uint8 - remaining credit on device |
+
+| Credit update |    |
+| -- | -- |
+| ID | 0xC7 |
+| Direction | hub -> Device |
+| Parameters | credit: uint8 - credit given to device |
+
+Device uses a credit system for sending NetSIO messages which should be processed by emulator (data bytes, proceed, interrupt). Processing of these messages on emulator can take some time (e.g. if emulator emulates POKEY receiving a byte). When such a message is sent one credit is consumed. If device is out of credit it informs the hub and then waits for additional credit from hub before sending the message. This mechanism prevents the queue on emulator side to be overfilled with incoming messages, whereas it allows few messages to be waiting in that queue for processing.
 
 ### Warm reset
 
