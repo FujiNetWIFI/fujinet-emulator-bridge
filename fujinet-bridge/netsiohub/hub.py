@@ -176,15 +176,15 @@ class NetSIOServer(socketserver.UDPServer):
             if address not in self.clients:
                 client = NetSIOClient(address, sock)
                 self.clients[address] = client
-                info_print("Device connected: {}  Devices: {}".format(adtos(address), len(self.clients)))
+                info_print("Device connected: {}  Devices: {}".format(addrtos(address), len(self.clients)))
             else:
                 client = self.clients[address]
                 client.sock = sock
                 client.refresh()
-                info_print("Device reconnected: {}  Devices: {}".format(adtos(address), len(self.clients)))
+                info_print("Device reconnected: {}  Devices: {}".format(addrtos(address), len(self.clients)))
         # give the client initial credit
-        client.update_credit(4) # initial credit
-        self.send_to_client(client, NetSIOMsg(NETSIO_CREDIT_UPDATE, 4))
+        client.update_credit(DEFAULT_CREDIT) # initial credit
+        self.send_to_client(client, NetSIOMsg(NETSIO_CREDIT_UPDATE, DEFAULT_CREDIT))
         # notify hub
         self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_CONNECT), client)
         return client
@@ -198,7 +198,7 @@ class NetSIOServer(socketserver.UDPServer):
             count = len(self.clients)
         if client is not None:
             info_print("Device disconnected{}: {}  Devices: {}".format(
-                " (connection expired)" if expired else "", adtos(address), count))
+                " (connection expired)" if expired else "", addrtos(address), count))
             self.hub.handle_device_msg(NetSIOMsg(NETSIO_DEVICE_DISCONNECT), client)
 
     def get_client(self, address):
@@ -208,7 +208,7 @@ class NetSIOServer(socketserver.UDPServer):
 
     def send_to_client(self, client:NetSIOClient, msg):
         client.sock.sendto(struct.pack('B', msg.id) + msg.arg, client.address)
-        debug_print("> NET {} {}".format(adtos(client.address), msg))
+        debug_print("> NET {} {}".format(addrtos(client.address), msg))
 
     def send_to_all(self, msg):
         """broadcast all connected netsio devices"""
@@ -243,7 +243,7 @@ class NetSIOServer(socketserver.UDPServer):
 
     def credit_clients(self):
         # send credits to waiting clients if there is a room in a queue
-        credit = 4 - self.hub.host_queue.qsize()
+        credit = DEFAULT_CREDIT - self.hub.host_queue.qsize()
         if credit >= 2:
             with self.clients_lock:
                 clients = self.clients.values()
@@ -263,7 +263,7 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
 
         debug_print("< NET IN +{:.0f} {} {}".format(
             (timer()-self.server.last_recv)*1.e6,
-            adtos(ca), msg))
+            addrtos(ca), msg))
         self.server.last_recv = timer()
 
         if msg.id < NETSIO_CONN_MGMT:
@@ -306,10 +306,10 @@ class NetSIOHandler(socketserver.BaseRequestHandler):
             elif msg.id == NETSIO_CREDIT_STATUS:
                 client = self.server.get_client(self.client_address)
                 if client is not None and len(msg.arg):
-                    # update clinet's credit
-                    client.update_credit(msg.arg[0], 10) # 10 to force credit update
+                    # update client's credit
+                    client.update_credit(msg.arg[0], 10) # threshold 10 to force credit update
                     # send new credit immediately if there is a room in a queue
-                    credit = 4 - self.server.hub.host_queue.qsize()
+                    credit = DEFAULT_CREDIT - self.server.hub.host_queue.qsize()
                     if credit >= 2 and client.update_credit(credit):
                         self.server.send_to_client(client, NetSIOMsg(NETSIO_CREDIT_UPDATE, credit))
 

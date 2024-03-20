@@ -57,6 +57,7 @@ NETSIO_PORT         = 9997
 #  connection is being considered as expired and the device is disconnected from the HUB
 ALIVE_EXPIRATION = 30.0
 
+DEFAULT_CREDIT = 4
 
 # debug printing, disabled by default
 _debug_enabled = False
@@ -83,7 +84,7 @@ def clear_queue(q):
     except queue.Empty:
         pass
 
-def adtos(addr):
+def addrtos(addr):
     return "{}:{}".format(*addr)
 
 class NetSIOMsg:
