@@ -22,6 +22,8 @@ NETSIO_INTERRUPT_OFF    = 0x40
 NETSIO_INTERRUPT_ON     = 0x41
 NETSIO_SPEED_CHANGE     = 0x80
 NETSIO_SYNC_RESPONSE    = 0x81
+NETSIO_BUS_IDLE         = 0x88
+NETSIO_CANCEL           = 0x89 # not implemented
 NETSIO_DEVICE_DISCONNECT = 0xC0
 NETSIO_DEVICE_CONNECT   = 0xC1
 NETSIO_PING_REQUEST     = 0xC2
@@ -57,7 +59,7 @@ NETSIO_PORT         = 9997
 #  connection is being considered as expired and the device is disconnected from the HUB
 ALIVE_EXPIRATION = 30.0
 
-DEFAULT_CREDIT = 4
+DEFAULT_CREDIT = 3
 
 # debug printing, disabled by default
 _debug_enabled = False
@@ -103,6 +105,8 @@ class NetSIOMsg:
         0x41 : "INTERRUPT_ON",
         0x80 : "SPEED_CHANGE",
         0x81 : "SYNC_RESPONSE",
+        0x88 : "BUS_IDLE",
+        0x89 : "CANCEL",
         0xC0 : "DEVICE_DISCONNECT",
         0xC1 : "DEVICE_CONNECT",
         0xC2 : "PING_REQUEST",

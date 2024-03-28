@@ -585,7 +585,7 @@ class AtDevThread(threading.Thread):
             if self.queue.qsize() < 2:
                 self.atdev_handler.hub.credit_clients()
 
-            if msg.id in (NETSIO_DATA_BYTE, NETSIO_DATA_BLOCK):
+            if msg.id in (NETSIO_DATA_BYTE, NETSIO_DATA_BLOCK, NETSIO_BUS_IDLE):
                 # send byte and send buffer makes POKEY busy and
                 # we have to receive confirmation when it is ready again
                 # prior sending more data
@@ -633,10 +633,17 @@ class AtDevThread(threading.Thread):
                     self.atdev_handler.req_interrupt(msg.id, struct.unpack('<L', msg.arg)[0])
                 else:
                     info_print("Invalid NETSIO_SPEED_CHANGE message")
+            elif msg.id == NETSIO_BUS_IDLE:
+                # speed change
+                if len(msg.arg) == 2:
+                    debug_print("< ATD {}".format(msg))
+                    self.atdev_handler.req_interrupt(msg.id, struct.unpack('<H', msg.arg)[0])
+                else:
+                    info_print("Invalid NETSIO_BUS_IDLE message")
             else:
                 # all other
-                self.atdev_handler.req_interrupt(msg.id, msg.arg[0] if len(msg.arg) else 0)
                 debug_print("< ATD {}".format(msg))
+                self.atdev_handler.req_interrupt(msg.id, msg.arg[0] if len(msg.arg) else 0)
 
         debug_print("AtDevThread stopped")
 
@@ -691,7 +698,7 @@ class NetSIOHub:
     def __init__(self, device_manager:DeviceManager, host_manager:HostManager):
         self.device_manager = device_manager
         self.host_manager = host_manager
-        self.host_queue = queue.Queue(3)
+        self.host_queue = queue.Queue(8) # max 3-4 items should be there, anyhow make it bit larger, to avoid blocked netin thread
         self.host_ready = threading.Event()
         self.host_handler:AtDevHandler = None
         self.sync = NetSIOHub.SyncRequest()

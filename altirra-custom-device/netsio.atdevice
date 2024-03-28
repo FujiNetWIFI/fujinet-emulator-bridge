@@ -35,6 +35,7 @@ int rxbyte;
 int sync_response;
 int in_cpb;
 int out_cpb;
+int idle_tics;
 int sync_write_size;
 int write_size_hint;
 int pclink_write_size;
@@ -254,6 +255,7 @@ function void byte_to_computer()
     if ($sio.command_asserted()) {
         Debug.log("Byte to computer while command is asserted! Byte discarded.");
         $network.post_message($100, 0); // ready
+        txbuffer_len = 0;
         return;
     }
 
@@ -262,6 +264,7 @@ function void byte_to_computer()
     $sio.send_raw_byte(txbyte, in_cpb);
     // notify server that we can accept another byte or buffer
     $network.post_message($100, 0);
+    txbuffer_len = 0;
     [debug] Debug.log("< byte_to_computer ended");
 }
 
@@ -274,6 +277,7 @@ function void buffer_to_computer()
         if ($sio.command_asserted()) {
             Debug.log_int("Buffer to computer while command is asserted! Bytes discarded: ", txbuffer_len - i);
             $network.post_message($100, 0); // ready
+            txbuffer_len = 0;
             return;
         }
 
@@ -285,10 +289,21 @@ function void buffer_to_computer()
             // note: there is no "break" in 3.90
             // notify server that we can accept another byte or buffer
             $network.post_message($100, 0);
+            txbuffer_len = 0;
             [debug] Debug.log("< buffer_to_computer ended");
             return;
         }
     }
+}
+
+function void bus_idle()
+{
+    [debug] Debug.log("< bus_idle started");
+    Thread.sleep(idle_tics); // be nice to Atari
+    // notify server that we can accept another byte or buffer
+    $network.post_message($100, 0);
+    idle_tics = 0;
+    [debug] Debug.log("< bus_idle ended");
 }
 
 function void handle_sync_response()
@@ -489,6 +504,7 @@ event "network_interrupt": function
 
     if (evt == $01) { // data byte
         txbyte = arg;
+        txbuffer_len = 1;
         [debug] Debug.log_int("< Data byte ", txbyte);
         sio_send_thread.run(byte_to_computer); // thread is not started in 3.90
         // Thread.sleep(400); // yield workaround for 3.90
@@ -515,6 +531,23 @@ event "network_interrupt": function
         in_cpb = 1789760 / arg;
         Debug.log_int("NetSIO to Atari @ ", arg);
     }
+    if (evt == $88) { // Idle
+        idle_tics = 1789760 * arg / 1000;
+        [debug] Debug.log_int("< Idle ", arg);
+        sio_send_thread.run(bus_idle);
+    }
+    // NETSIO_CANCEL is not used/implemented
+    // if (evt == $89) { // cancel GAP (or byte/buffer to computer)
+    //     [debug] Debug.log("< Cancel");
+    //     sio_send_thread.interrupt();
+    //     if (idle_tics || txbuffer_len) {
+    //         $network.post_message($100, 0);
+    //         [debug] if (idle_tics) Debug.log("  idle cancelled");
+    //         [debug] if (txbuffer_len) Debug.log("  byte/buffer to computer cancelled");
+    //         idle_tics = 0;
+    //         txbuffer_len = 0;
+    //     }
+    // }
     else if (evt == $31) {
         [debug] Debug.log("< Proceed ON");
         $sio.set_proceed(1);
@@ -568,7 +601,8 @@ event "cold_reset": function
     // assume default 19200 baud
     out_cpb = 94;
     in_cpb = 94;
-
+    
+    idle_tics = 0;
     sync_write_size = 0;
     processing_message = 0;
 
