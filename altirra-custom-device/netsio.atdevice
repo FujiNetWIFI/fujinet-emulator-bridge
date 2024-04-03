@@ -3,8 +3,16 @@
 // Requires the netsio-server.py script to handle UDP communications on port
 // 9996
 
-option "name": "NetSIO - SIO over network v0.14";
+option "name": "NetSIO - SIO over network v0.15";
 option "debug": false; // not for 3.90
+
+event "init": function
+{
+    $sio.enable_raw(true);
+    Debug.log("NetSIO v0.15");
+    [debug] Debug.log("DEBUG enabled");
+};
+
 
 option "network": 
 {
@@ -585,13 +593,6 @@ event "network_interrupt": function
         // Debug NOP
         Debug.log_int("< NOP ", arg);
     }
-};
-
-event "init": function 
-{
-    $sio.enable_raw(true);
-    Debug.log("NetSIO v0.14");
-    [debug] Debug.log("DEBUG enabled");
 };
 
 event "cold_reset": function 
