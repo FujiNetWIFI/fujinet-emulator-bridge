@@ -5,7 +5,7 @@ from datetime import datetime
 from timeit import default_timer as timer
 
 
-HUB_VERSION = "v0.15"
+HUB_VERSION = "v0.16"
 
 
 NETSIO_DATA_BYTE        = 0x01

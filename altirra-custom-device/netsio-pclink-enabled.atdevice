@@ -629,7 +629,7 @@ event "cold_reset": function
     processing_message = 0;
     // Optionally prevent netsio to handle these two SIO devices
     block_dev1 = $4F; // Poll3, -1 to deactivate
-    block_dev2 = $6F; // $6F for PCLink, -1 to deactivate
+    block_dev2 = -1; // $6F for PCLink, -1 to deactivate
     skip_current_command = 0;
 
     processing_pclink_parblk = 0;

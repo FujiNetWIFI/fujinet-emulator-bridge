@@ -3,13 +3,13 @@
 // Requires the netsio-server.py script to handle UDP communications on port
 // 9996
 
-option "name": "NetSIO - SIO over network v0.16";
+option "name": "NetSIO - SIO over network v0.15";
 option "debug": false; // not for 3.90
 
 event "init": function
 {
     $sio.enable_raw(true);
-    Debug.log("NetSIO v0.16");
+    Debug.log("NetSIO v0.15");
     [debug] Debug.log("DEBUG enabled");
 };
 
@@ -49,9 +49,6 @@ int write_size_hint;
 int pclink_write_size;
 int processing_message;
 int processing_pclink_parblk;
-int block_dev1;
-int block_dev2;
-int skip_current_command;
 
 Thread command_thread;
 Thread motor_thread;
@@ -413,36 +410,29 @@ function void command_thread_handler()
         sync_write_size = 5;
         // notify devices that the command frame started
         [debug] Debug.log("> Command ON");
-        //$network.post_message($11, 0);
+        $network.post_message($11, 0);
 
         // wait for command de-asserted
         //$network.post_message($103, $13); // debug nop
         $sio.wait_command_off();
         [debug] Debug.log("* Command OFF");
-        if (!skip_current_command) {
-            if (rxbuffer_len) {
-                Debug.log_int("NetSIO sending short COMMAND frame ", rxbuffer_len);
-                Debug.log_int("bytes missing ", sync_write_size);
-                // if there is anything in rx buffer, it means device is still waiting for it
-                // because Atari did not send enough command bytes yet, but there is end of command frame now
-                buffer_to_server(); // flush what we have (incomplete/short command frame)
-            }
-            // notify devices about end of command frame and request ACK/NAK sync
-            //$network.post_message($103, $14); // debug nop
-            sync_ack_on_command_frame();
-            //$network.post_message($103, $15); // debug nop
-        } else {
-            // flush rxbuffer
-            rxbuffer_len = 0;
+        if (rxbuffer_len) {
+            Debug.log_int("NetSIO sending short COMMAND frame ", rxbuffer_len);
+            Debug.log_int("bytes missing ", sync_write_size);
+            // if there is anything in rx buffer, it means device is still waiting for it
+            // because Atari did not send enough command bytes yet, but there is end of command frame now
+            buffer_to_server(); // flush what we have (incomplete/short command frame)
         }
-        skip_current_command = 0;
+        // notify devices about end of command frame and request ACK/NAK sync
+        //$network.post_message($103, $14); // debug nop
+        sync_ack_on_command_frame();
+        //$network.post_message($103, $15); // debug nop
     }
 }
 
 function void rxbyte_thread_handler() 
 {
     int baud;
-    int devID;
     loop {
         //$network.post_message($103, 1); // debug nop
         rxbyte = $sio.recv_raw_byte();
@@ -467,26 +457,15 @@ function void rxbyte_thread_handler()
                     // add command frame checksum byte to rxbuffer
                     rxbuffer.write_byte(rxbuffer_len, rxbyte);
                     rxbuffer_len = 1 + rxbuffer_len;
-                    devID = rxbuffer.read_byte(0);
-                    if (devID == block_dev1 || devID == block_dev2) {
-                        Debug.log_int("Skipping command for device ", devID);
-                        skip_current_command = 1;
-                    }
-                    if (!skip_current_command) {
-                        // notify command is asserted
-                        $network.post_message($11, 0);
-                    }
                 }
-                if (!skip_current_command) {
-                    // send rxbuffer to server (command frame w/ checksum or data frame w/o checksum)
-                    //$network.post_message($103, 5); // debug nop
-                    buffer_to_server();
-                    //$network.post_message($103, 6); // debug nop
-                    // if not command frame it must be SIO write data frame
-                    if (!cmd_asserted) {
-                        // send data frame checksum and wait for acknowledgment
-                        sync_ack_on_data_frame();
-                    }
+                // send rxbuffer to server (command frame w/ checksum or data frame w/o checksum)
+                //$network.post_message($103, 5); // debug nop
+                buffer_to_server();
+                //$network.post_message($103, 6); // debug nop
+                // if not command frame it must be SIO write data frame
+                if (!cmd_asserted) {
+                    // send data frame checksum and wait for acknowledgment
+                    sync_ack_on_data_frame();
                 }
             } else {
                 // append received byte to rxbuffer
@@ -503,7 +482,7 @@ function void rxbyte_thread_handler()
         else
         {
             [debug] Debug.log("> Data byte");
-            if ($sio.command_asserted() && !skip_current_command) {
+            if ($sio.command_asserted()) {
                 [debug] Debug.log_int(">   to server (+COMMAND) ", rxbyte);
             }
             else {
@@ -627,10 +606,6 @@ event "cold_reset": function
     idle_tics = 0;
     sync_write_size = 0;
     processing_message = 0;
-    // Optionally prevent netsio to handle these two SIO devices
-    block_dev1 = $4F; // Poll3, -1 to deactivate
-    block_dev2 = $6F; // $6F for PCLink, -1 to deactivate
-    skip_current_command = 0;
 
     processing_pclink_parblk = 0;
 

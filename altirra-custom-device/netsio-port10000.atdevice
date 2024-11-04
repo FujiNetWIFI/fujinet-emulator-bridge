@@ -1,10 +1,18 @@
 // SIO over IP
 // Translates events on SIO to corresponding UDP messages and vice versa.
 // Requires the netsio-server.py script to handle UDP communications on port
-// 9996
+// 10000
 
-option "name": "NetSIO - SIO over network v0.13";
+option "name": "NetSIO - SIO over network v0.16";
 option "debug": false; // not for 3.90
+
+event "init": function
+{
+    $sio.enable_raw(true);
+    Debug.log("NetSIO v0.16");
+    [debug] Debug.log("DEBUG enabled");
+};
+
 
 option "network": 
 {
@@ -35,9 +43,15 @@ int rxbyte;
 int sync_response;
 int in_cpb;
 int out_cpb;
+int idle_tics;
 int sync_write_size;
 int write_size_hint;
+int pclink_write_size;
 int processing_message;
+int processing_pclink_parblk;
+int block_dev1;
+int block_dev2;
+int skip_current_command;
 
 Thread command_thread;
 Thread motor_thread;
@@ -130,9 +144,16 @@ function void debug_command_frame()
         else if(cmd == $57) {Debug.log_int("Network WRITE ", aux); write_size_hint = 1+aux;}
         else if(cmd == $4F) {Debug.log_int("Network OPEN ", aux); write_size_hint = 257;}
         else if(cmd == $4D) Debug.log_int("Network MODE ", aux);
+
         else if(cmd == $43) Debug.log("Network CLOSE");
         else if(cmd == $50) Debug.log("Network Parse JSON ");
         else if(cmd == $51) {Debug.log("Network Query JSON "); write_size_hint = 257;}
+        else if(cmd == $20) {Debug.log("Network RENAME"); write_size_hint = 257;}
+        else if(cmd == $21) {Debug.log("Network DELETE"); write_size_hint = 257;}
+        else if(cmd == $23) {Debug.log("Network LOCK"); write_size_hint = 257;}
+        else if(cmd == $24) {Debug.log("Network UNLOCK"); write_size_hint = 257;}
+        else if(cmd == $2A) {Debug.log("Network MKDIR"); write_size_hint = 257;}
+        else if(cmd == $2B) {Debug.log("Network RMDIR"); write_size_hint = 257;}
         else if(cmd == $2C) {Debug.log("Network CHDIR"); write_size_hint = 257;}
         else if(cmd == $30) Debug.log("Network PWD");
         else if(cmd == $FC) Debug.log_int("Network SET Channel Mode ", aux2);
@@ -175,11 +196,54 @@ function void debug_command_frame()
     {
         Debug.log_int("Poll3 CMD ", cmd);
     }
+    else if (devID == $6F)
+    {
+        if (cmd == $50) {
+            Debug.log_int("PCLink PARBLK ", aux1);
+            write_size_hint = aux1 + 1;
+            processing_pclink_parblk = 1;
+        }
+        else if (cmd == $52) {
+            Debug.log_int("PCLink EXEC, whint=", pclink_write_size);
+            write_size_hint = pclink_write_size;
+        }
+        else if(cmd == $53) Debug.log("PCLink STATUS");
+    }
     else
     {
         Debug.log_int("Device  ", devID);
         Debug.log_int("Command ", cmd);
     }
+}
+
+function void debug_pclink_parblk()
+{
+    int fno = rxbuffer.read_byte(0);
+    int handle = rxbuffer.read_byte(1);
+    int blk_size = rxbuffer.read_byte(2) + 256 * rxbuffer.read_byte(3);
+    int faux = blk_size + 65536 * rxbuffer.read_byte(4);
+    processing_pclink_parblk = 0;
+    pclink_write_size = 0;
+    if (fno == $00) Debug.log_int("  FREAD ", blk_size);
+    else if (fno == $01) {Debug.log_int("  FWRITE ", blk_size); pclink_write_size = blk_size + 1;}
+    else if (fno == $02) Debug.log_int("  FSEEK ", faux);
+    else if (fno == $03) Debug.log("  FTELL");
+    else if (fno == $04) Debug.log("  FLEN");
+    else if (fno == $06) Debug.log("  FNEXT");
+    else if (fno == $07) Debug.log("  FCLOSE");
+    else if (fno == $08) Debug.log("  INIT");
+    else if (fno == $09) Debug.log("  FOPEN");
+    else if (fno == $0A) Debug.log("  FFIRST");
+    else if (fno == $0B) Debug.log("  RENAME");
+    else if (fno == $0C) Debug.log("  REMOVE");
+    else if (fno == $0D) Debug.log("  CHMOD");
+    else if (fno == $0E) Debug.log("  MKDIR");
+    else if (fno == $0F) Debug.log("  RMDIR");
+    else if (fno == $10) Debug.log("  CHDIR");
+    else if (fno == $11) Debug.log("  GETCWD");
+    else if (fno == $13) Debug.log("  DFREE");
+    else if (fno == $14) Debug.log("  CHVOL");
+    else Debug.log_int("  fno=", fno);
 }
 
 function void motor_thread_handler() 
@@ -202,6 +266,7 @@ function void byte_to_computer()
     if ($sio.command_asserted()) {
         Debug.log("Byte to computer while command is asserted! Byte discarded.");
         $network.post_message($100, 0); // ready
+        txbuffer_len = 0;
         return;
     }
 
@@ -210,21 +275,23 @@ function void byte_to_computer()
     $sio.send_raw_byte(txbyte, in_cpb);
     // notify server that we can accept another byte or buffer
     $network.post_message($100, 0);
+    txbuffer_len = 0;
     [debug] Debug.log("< byte_to_computer ended");
 }
 
 function void buffer_to_computer()
 {
-    if ($sio.command_asserted()) {
-        Debug.log_int("Buffer to computer while command is asserted! Bytes discarded: ", txbuffer_len);
-        $network.post_message($100, 0); // ready
-        return;
-    }
-
     [debug] Debug.log_int("< buffer_to_computer started, length: ", txbuffer_len);
     // send bytes from region to POKEY
     int i = 0;
     loop {
+        if ($sio.command_asserted()) {
+            Debug.log_int("Buffer to computer while command is asserted! Bytes discarded: ", txbuffer_len - i);
+            $network.post_message($100, 0); // ready
+            txbuffer_len = 0;
+            return;
+        }
+
         [debug] Debug.log_int("<   to computer ", txbuffer.read_byte(i));
         Thread.sleep(3); // be nice to Atari
         $sio.send_raw_byte(txbuffer.read_byte(i), in_cpb);
@@ -233,30 +300,41 @@ function void buffer_to_computer()
             // note: there is no "break" in 3.90
             // notify server that we can accept another byte or buffer
             $network.post_message($100, 0);
+            txbuffer_len = 0;
             [debug] Debug.log("< buffer_to_computer ended");
             return;
         }
     }
 }
 
+function void bus_idle()
+{
+    [debug] Debug.log("< bus_idle started");
+    Thread.sleep(idle_tics); // be nice to Atari
+    // notify server that we can accept another byte or buffer
+    $network.post_message($100, 0);
+    idle_tics = 0;
+    [debug] Debug.log("< bus_idle ended");
+}
+
 function void handle_sync_response()
 {
     int ack;
-    if (sync_response >=0) {
+    if (sync_response & $FF == $81) { // SYNC_ACK
         if (sio_send_thread.is_running()) {
             Debug.log("Sync ACK while still sending to computer! Cancelling send.");
             // TODO wait/join or cancel/interrupt ? - simulate vs improve communication
             sio_send_thread.interrupt();
         }
-        ack = sync_response & $FF; // ACK/NAK byte
-        sync_write_size = sync_response >> 8; // next sync after this amount of bytes written
-        [debug] Debug.log_int("Sync ACK: ", ack);
-        [debug] Debug.log_int("Sync write size: ", sync_write_size);
+        ack = (sync_response >> 8) & $FF; // ACK/NAK byte
+        sync_write_size = sync_response >> 16; // next sync after this amount of bytes written
+        [debug] Debug.log_int("  Sync ACK: ", ack);
+        [debug] Debug.log_int("  Sync write size: ", sync_write_size);
         // ACK/NAK byte to computer
         txbyte = ack;
         byte_to_computer();
     } else {
-        [debug] Debug.log("EMPTY ACK");
+        [debug] Debug.log("  EMPTY ACK");
     }
 }
 
@@ -273,7 +351,7 @@ function void sync_ack_on_command_frame()
     // if no sync write size was given, use write size hint, if any
     if (sync_write_size == 0 && write_size_hint != 0) {
         sync_write_size = write_size_hint;
-        [debug] Debug.log_int("Write size hint: ", write_size_hint);
+        [debug] Debug.log_int("  Write size hint: ", write_size_hint);
     }
 }
 
@@ -299,8 +377,13 @@ function void buffer_to_server()
         [debug] Debug.log("> Data block");
         [debug] Debug.log_int("> buffer_to_server started, length: ", rxbuffer_len);
         // command frame debugging
-        if ($sio.command_asserted()) {
+        if ($sio.command_asserted()) 
+        {
             debug_command_frame();
+        }
+        else if (processing_pclink_parblk) 
+        {
+            debug_pclink_parblk();
         }
 
         processing_message = $02;
@@ -330,29 +413,36 @@ function void command_thread_handler()
         sync_write_size = 5;
         // notify devices that the command frame started
         [debug] Debug.log("> Command ON");
-        $network.post_message($11, 0);
+        //$network.post_message($11, 0);
 
         // wait for command de-asserted
         //$network.post_message($103, $13); // debug nop
         $sio.wait_command_off();
         [debug] Debug.log("* Command OFF");
-        if (rxbuffer_len) {
-            Debug.log_int("NetSIO sending short COMMAND frame ", rxbuffer_len);
-            Debug.log_int("bytes missing ", sync_write_size);
-            // if there is anything in rx buffer, it means device is still waiting for it
-            // because Atari did not send enough command bytes yet, but there is end of command frame now
-            buffer_to_server(); // flush what we have (incomplete/short command frame)
+        if (!skip_current_command) {
+            if (rxbuffer_len) {
+                Debug.log_int("NetSIO sending short COMMAND frame ", rxbuffer_len);
+                Debug.log_int("bytes missing ", sync_write_size);
+                // if there is anything in rx buffer, it means device is still waiting for it
+                // because Atari did not send enough command bytes yet, but there is end of command frame now
+                buffer_to_server(); // flush what we have (incomplete/short command frame)
+            }
+            // notify devices about end of command frame and request ACK/NAK sync
+            //$network.post_message($103, $14); // debug nop
+            sync_ack_on_command_frame();
+            //$network.post_message($103, $15); // debug nop
+        } else {
+            // flush rxbuffer
+            rxbuffer_len = 0;
         }
-        // notify devices about end of command frame and request ACK/NAK sync
-        //$network.post_message($103, $14); // debug nop
-        sync_ack_on_command_frame();
-        //$network.post_message($103, $15); // debug nop
+        skip_current_command = 0;
     }
 }
 
 function void rxbyte_thread_handler() 
 {
     int baud;
+    int devID;
     loop {
         //$network.post_message($103, 1); // debug nop
         rxbyte = $sio.recv_raw_byte();
@@ -377,15 +467,26 @@ function void rxbyte_thread_handler()
                     // add command frame checksum byte to rxbuffer
                     rxbuffer.write_byte(rxbuffer_len, rxbyte);
                     rxbuffer_len = 1 + rxbuffer_len;
+                    devID = rxbuffer.read_byte(0);
+                    if (devID == block_dev1 || devID == block_dev2) {
+                        Debug.log_int("Skipping command for device ", devID);
+                        skip_current_command = 1;
+                    }
+                    if (!skip_current_command) {
+                        // notify command is asserted
+                        $network.post_message($11, 0);
+                    }
                 }
-                // send rxbuffer to server (command frame w/ checksum or data frame w/o checksum)
-                //$network.post_message($103, 5); // debug nop
-                buffer_to_server();
-                //$network.post_message($103, 6); // debug nop
-                // if not command frame it must be SIO write data frame
-                if (!cmd_asserted) {
-                    // send data frame checksum and wait for acknowledgment
-                    sync_ack_on_data_frame();
+                if (!skip_current_command) {
+                    // send rxbuffer to server (command frame w/ checksum or data frame w/o checksum)
+                    //$network.post_message($103, 5); // debug nop
+                    buffer_to_server();
+                    //$network.post_message($103, 6); // debug nop
+                    // if not command frame it must be SIO write data frame
+                    if (!cmd_asserted) {
+                        // send data frame checksum and wait for acknowledgment
+                        sync_ack_on_data_frame();
+                    }
                 }
             } else {
                 // append received byte to rxbuffer
@@ -402,7 +503,7 @@ function void rxbyte_thread_handler()
         else
         {
             [debug] Debug.log("> Data byte");
-            if ($sio.command_asserted()) {
+            if ($sio.command_asserted() && !skip_current_command) {
                 [debug] Debug.log_int(">   to server (+COMMAND) ", rxbyte);
             }
             else {
@@ -417,8 +518,10 @@ function void rxbyte_thread_handler()
 
 event "network_interrupt": function 
 {
-    int evt = $aux1;
-    int arg = $aux2;
+    int evt      = $aux1 & $1FF;        // 9  bits for event id
+    int evt_arg  = ($aux1 >> 9) & $7F;  // 7  bits for compact event arg
+    int evt_data = $aux1 >> 16;         // 16 bits for compact event data
+    int arg      = $aux2;               // 32 bits full arg
 
     if (processing_message) {
         // $network.send_message() is still waiting for return value from server
@@ -429,14 +532,26 @@ event "network_interrupt": function
     }
 
     if (evt == $01) { // data byte
-        [debug] Debug.log("< Data byte");
         txbyte = arg;
+        txbuffer_len = 1;
+        [debug] Debug.log_int("< Data byte ", txbyte);
         sio_send_thread.run(byte_to_computer); // thread is not started in 3.90
         // Thread.sleep(400); // yield workaround for 3.90
     }
     else if (evt == $101) { // data block (txbuffer segment) push
-        [debug] Debug.log("< Data block");
-        txbuffer_len = arg;
+        if (evt_arg) {
+            // fill in txbuffer, up to 6 bytes in compact data block
+            txbuffer.write_byte(0,  evt_data & $FF);
+            txbuffer.write_byte(1,  evt_data >> 8);
+            txbuffer.write_byte(2,  arg        & $FF);
+            txbuffer.write_byte(3, (arg >> 8)  & $FF);
+            txbuffer.write_byte(4, (arg >> 16) & $FF);
+            txbuffer.write_byte(5,  arg >> 24);
+            txbuffer_len = evt_arg;
+        } else {
+            txbuffer_len = arg;
+        }
+        [debug] Debug.log_int("< Data block ", txbuffer_len);
         sio_send_thread.run(buffer_to_computer); // thread is not started in 3.90
         // Thread.sleep(400); // yield workaround for 3.90
     }
@@ -445,6 +560,23 @@ event "network_interrupt": function
         in_cpb = 1789760 / arg;
         Debug.log_int("NetSIO to Atari @ ", arg);
     }
+    if (evt == $88) { // Idle
+        idle_tics = 1789760 * arg / 1000;
+        [debug] Debug.log_int("< Idle ", arg);
+        sio_send_thread.run(bus_idle);
+    }
+    // NETSIO_CANCEL is not used/implemented
+    // if (evt == $89) { // cancel GAP (or byte/buffer to computer)
+    //     [debug] Debug.log("< Cancel");
+    //     sio_send_thread.interrupt();
+    //     if (idle_tics || txbuffer_len) {
+    //         $network.post_message($100, 0);
+    //         [debug] if (idle_tics) Debug.log("  idle cancelled");
+    //         [debug] if (txbuffer_len) Debug.log("  byte/buffer to computer cancelled");
+    //         idle_tics = 0;
+    //         txbuffer_len = 0;
+    //     }
+    // }
     else if (evt == $31) {
         [debug] Debug.log("< Proceed ON");
         $sio.set_proceed(1);
@@ -484,13 +616,6 @@ event "network_interrupt": function
     }
 };
 
-event "init": function 
-{
-    $sio.enable_raw(true);
-    Debug.log("NetSIO v0.13");
-    [debug] Debug.log("DEBUG enabled");
-};
-
 event "cold_reset": function 
 {
     txbuffer_len = 0;
@@ -498,9 +623,16 @@ event "cold_reset": function
     // assume default 19200 baud
     out_cpb = 94;
     in_cpb = 94;
-
+    
+    idle_tics = 0;
     sync_write_size = 0;
     processing_message = 0;
+    // Optionally prevent netsio to handle these two SIO devices
+    block_dev1 = $4F; // Poll3, -1 to deactivate
+    block_dev2 = $6F; // $6F for PCLink, -1 to deactivate
+    skip_current_command = 0;
+
+    processing_pclink_parblk = 0;
 
     $sio.enable_raw(true);
     motor_thread.run(motor_thread_handler);
@@ -509,7 +641,7 @@ event "cold_reset": function
     Debug.log("NetSIO Cold Reset");
     // In some cases Altirra sends Cold reset message to deviceserver without cold-resetting emulated Atari
     // Do not use handle_coldreset handler, rather handle 0xFF message in handle_script_post
-    $network.post_message($FF, 0);
+    $network.post_message($FF, 0); // cold reset
 };
 
 event "warm_reset": function 
