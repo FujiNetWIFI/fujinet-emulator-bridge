@@ -215,7 +215,7 @@ class NetSIOServer(socketserver.UDPServer):
         t = time.time()
         expire = False
         with self.clients_lock:
-            clients = self.clients.values()
+            clients = list(self.clients.values())
         # TODO test only
         msg.arg.append(self.sn)
         self.sn = (1 + self.sn) & 255
