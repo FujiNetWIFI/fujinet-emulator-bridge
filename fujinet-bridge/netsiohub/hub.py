@@ -246,7 +246,7 @@ class NetSIOServer(socketserver.UDPServer):
         credit = DEFAULT_CREDIT - self.hub.host_queue.qsize()
         if credit >= 2:
             with self.clients_lock:
-                clients = self.clients.values()
+                clients = list(self.clients.values())
             msg = NetSIOMsg(NETSIO_CREDIT_UPDATE, credit)
             for c in clients:
                 if c.update_credit(credit):
