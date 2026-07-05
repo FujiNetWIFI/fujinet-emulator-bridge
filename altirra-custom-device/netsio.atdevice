@@ -138,6 +138,12 @@ function void debug_command_frame()
         else if(cmd == $3F) Debug.log("Fuji GET HSIO");
         else Debug.log_int("Fuji CMD ", cmd);
     }
+    else if (devID == $7F)
+    {
+        if (cmd == $57) {Debug.log_int("NIO FujiBus WRITE ", aux); write_size_hint = 1+aux;}
+        else if(cmd == $52) Debug.log("NIO FujiBus READ");
+        else Debug.log_int("NIO FujiBus CMD ", cmd);
+    }
     else if (devID >= $71 && devID <= $78)
     {
         if (cmd == $52) Debug.log_int("Network READ ", aux);
